@@ -1,0 +1,54 @@
+# Organizador de Arquivos com IA - Dependências
+# Versão Avançada 2.0.0
+
+# Interface Gráfica
+# tkinter já vem incluído no Python padrão
+
+# Manipulação de Arquivos e Datas
+# pathlib, datetime, shutil já vem incluído no Python padrão
+
+# Threading e JSON
+# threading, json já vem incluído no Python padrão
+
+# Dependências Opcionais para Funcionalidades Avançadas
+# (Descomente se desejar usar funcionalidades específicas)
+
+# Para análise avançada de arquivos
+# python-magic==0.4.27
+# pillow==10.0.1
+
+# Para compressão de backups
+# zipfile já vem incluído no Python padrão
+
+# Para logs mais avançados
+# colorlog==6.7.0
+
+# Para interface web (futuro)
+# flask==2.3.3
+# flask-cors==4.0.0
+
+# Para análise de metadados
+# exifread==3.0.0
+
+# Para processamento de imagens
+# opencv-python==4.8.1.78
+
+# Para análise de documentos
+# python-docx==0.8.11
+# PyPDF2==3.0.1
+
+# Para notificações do sistema
+# plyer==2.1.0
+
+# Para interface mais moderna (alternativa ao tkinter)
+# customtkinter==5.2.0
+
+# NOTA: Este projeto foi desenvolvido para usar apenas bibliotecas
+# padrão do Python para máxima compatibilidade.
+# 
+# Todas as funcionalidades principais funcionam sem dependências externas.
+# As dependências opcionais acima podem ser instaladas para funcionalidades
+# adicionais específicas.
+#
+# Para instalar dependências opcionais:
+# pip install -r requirements-optional.txt
