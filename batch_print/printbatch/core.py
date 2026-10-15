@@ -30,7 +30,7 @@ COVERS = {
     "full": ["{name}", "Pasta: {folder}", "Caminho: {folder_path}", "Tipo: {ext}", "Arquivo {index} de {total}"],
     "number": ["Arquivo {index} de {total}", "{name}"],
 }
-SORTS = ("name", "date", "size", "type")
+SORTS = ("natural", "name", "date", "size", "type", "folder")
 NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
 
 
@@ -49,6 +49,8 @@ class Options:
     failed_page: bool = False
     attachments: bool = False         # imprime anexos de e-mail
     dry_run: bool = False
+    folder_divider: bool = False      # página separadora quando muda a pasta
+    set_copies: int = 1               # quantas vezes imprimir a fila inteira
 
     def validate(self):
         if self.copies < 1:
@@ -57,10 +59,48 @@ class Options:
             raise ValueError("modelo de rosto desconhecido: " + self.cover)
         if self.duplex not in (None, "long", "short"):
             raise ValueError("duplex inválido")
+        if self.set_copies < 1:
+            raise ValueError("cópias do conjunto deve ser >= 1")
 
 
 # ---------- Fila ----------
-def collect(paths, recursive=False, patterns=None, sort="name", reverse=False, warn=None):
+@dataclass
+class Item:
+    """Um arquivo da fila, com ajustes opcionais que valem só para ele."""
+    path: Path
+    enabled: bool = True
+    copies: Optional[int] = None      # None = usa o padrão
+    pages: Optional[str] = None
+    duplex: Optional[str] = None      # None = padrão; "off" | "long" | "short"
+    color: Optional[str] = None       # None = padrão; "color" | "mono"
+    note: str = ""
+
+    def __post_init__(self):
+        self.path = Path(self.path)
+
+    def effective(self, base: "Options") -> "Options":
+        d = asdict(base)
+        if self.copies:
+            d["copies"] = self.copies
+        if self.pages:
+            d["pages"] = self.pages
+        if self.duplex:
+            d["duplex"] = None if self.duplex == "off" else self.duplex
+        if self.color:
+            d["color"] = self.color == "color"
+        return Options(**d)
+
+    def overrides(self):
+        return {k: v for k, v in (("copies", self.copies), ("pages", self.pages),
+                                  ("duplex", self.duplex), ("color", self.color)) if v}
+
+
+def natural_key(text):
+    import re
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(text))]
+
+
+def collect(paths, recursive=False, patterns=None, sort="natural", reverse=False, warn=None):
     files = []
     for raw in paths:
         p = Path(raw)
@@ -86,9 +126,12 @@ def filter_files(files, patterns):
     return [f for f in files if any(fnmatch.fnmatch(f.name.lower(), p.lower()) for p in patterns)]
 
 
-def sort_files(files, sort="name", reverse=False):
-    keys = {"name": lambda f: str(f).lower(), "date": lambda f: f.stat().st_mtime,
-            "size": lambda f: f.stat().st_size, "type": lambda f: (f.suffix.lower(), str(f).lower())}
+def sort_files(files, sort="natural", reverse=False):
+    keys = {"natural": lambda f: natural_key(f),
+            "name": lambda f: str(f).lower(), "date": lambda f: f.stat().st_mtime,
+            "size": lambda f: f.stat().st_size,
+            "type": lambda f: (f.suffix.lower(), natural_key(f)),
+            "folder": lambda f: (natural_key(f.parent), natural_key(f.name))}
     return sorted(files, key=keys[sort], reverse=reverse)
 
 
@@ -272,47 +315,68 @@ def prepare(f, tmp, opts, depth=0):
 Event = Callable[..., None]
 
 
-def run_job(files: List[Path], opts: Options, backend, on_event: Optional[Event] = None,
+def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
             cancel: Optional[threading.Event] = None):
-    """Imprime a lista. Retorna lista de dicts de relatório. Eventos: start, ok, error, cancelled, done."""
+    """Imprime a fila (Paths ou Items). Itens desmarcados são ignorados.
+    Retorna lista de dicts de relatório. Eventos: start, ok, error, skipped, cancelled, done."""
     opts.validate()
     emit = on_event or (lambda *a, **k: None)
+    items = [x if isinstance(x, Item) else Item(x) for x in files]
     rows, ok, fail = [], 0, 0
     now = lambda: datetime.datetime.now().isoformat(timespec="seconds")
     plain = Options(**{**asdict(opts), "copies": 1, "pages": None, "duplex": None})  # rosto/aviso: simples
-    total = len(files)
+    active = [it for it in items if it.enabled]
+    total = len(active) * opts.set_copies
+    for it in items:
+        if not it.enabled:
+            rows.append({"arquivo": str(it.path), "status": "ignorado", "detalhe": "desmarcado", "hora": now()})
+            emit("skipped", file=it.path)
+    n = 0
+    stop = False
+    last_folder = None
     with tempfile.TemporaryDirectory(prefix="printbatch_") as tmp:
-        for i, f in enumerate(files, 1):
-            if cancel is not None and cancel.is_set():
-                emit("cancelled", index=i, total=total)
+        for rep in range(opts.set_copies):
+            for it in active:
+                if cancel is not None and cancel.is_set():
+                    emit("cancelled", index=n + 1, total=total)
+                    stop = True
+                    break
+                n += 1
+                f = it.path
+                emit("start", index=n, total=total, file=f)
+                try:
+                    if not f.exists():
+                        raise RuntimeError("arquivo não encontrado")
+                    eff = it.effective(opts)
+                    eff.validate()
+                    work = Path(tmp) / f"f{n}"
+                    work.mkdir()
+                    if opts.folder_divider and f.parent != last_folder:
+                        div = pdfgen.centered_page_pdf(
+                            work / "_pasta.pdf", ["PASTA", f.parent.resolve().name or "/", str(f.parent.resolve())])
+                        backend.print_file(div, plain, "separador de pasta")
+                    last_folder = f.parent
+                    parts = [f] if opts.dry_run and f.suffix.lower() in OFFICE else prepare(f, work, eff)
+                    if opts.cover or opts.cover_text:
+                        cov = pdfgen.centered_page_pdf(work / "_rosto.pdf", cover_lines(opts, f, n, total))
+                        backend.print_file(cov, plain, f"rosto {f.name}")
+                    detail = [backend.print_file(p, eff, f.name) or "" for p in parts]
+                    ok += 1
+                    rows.append({"arquivo": str(f), "status": "ok", "detalhe": "; ".join(d for d in detail if d), "hora": now()})
+                    emit("ok", index=n, total=total, file=f)
+                except Exception as e:
+                    fail += 1
+                    rows.append({"arquivo": str(f), "status": "falhou", "detalhe": str(e), "hora": now()})
+                    emit("error", index=n, total=total, file=f, error=str(e))
+                    if opts.failed_page:
+                        try:
+                            pg = pdfgen.centered_page_pdf(Path(tmp) / f"_falha_{n}.pdf",
+                                                          ["ARQUIVO NÃO IMPRESSO", f.name, "Motivo: " + str(e)[:160]])
+                            backend.print_file(pg, plain, "aviso de falha")
+                        except Exception as e2:
+                            emit("error", index=n, total=total, file=f, error="aviso de falha também falhou: " + str(e2))
+            if stop:
                 break
-            emit("start", index=i, total=total, file=f)
-            try:
-                if not Path(f).exists():
-                    raise RuntimeError("arquivo não encontrado")
-                work = Path(tmp) / f"f{i}"
-                work.mkdir()
-                parts = [Path(f)] if opts.dry_run and Path(f).suffix.lower() in OFFICE else prepare(f, work, opts)
-                if opts.cover or opts.cover_text:
-                    cov = pdfgen.centered_page_pdf(Path(tmp) / f"_rosto_{i}.pdf", cover_lines(opts, Path(f), i, total))
-                    backend.print_file(cov, plain, f"rosto {Path(f).name}")
-                detail = []
-                for p in parts:
-                    detail.append(backend.print_file(p, opts, Path(f).name) or "")
-                ok += 1
-                rows.append({"arquivo": str(f), "status": "ok", "detalhe": "; ".join(d for d in detail if d), "hora": now()})
-                emit("ok", index=i, total=total, file=f)
-            except Exception as e:
-                fail += 1
-                rows.append({"arquivo": str(f), "status": "falhou", "detalhe": str(e), "hora": now()})
-                emit("error", index=i, total=total, file=f, error=str(e))
-                if opts.failed_page:
-                    try:
-                        pg = pdfgen.centered_page_pdf(Path(tmp) / f"_falha_{i}.pdf",
-                                                      ["ARQUIVO NÃO IMPRESSO", Path(f).name, "Motivo: " + str(e)[:160]])
-                        backend.print_file(pg, plain, "aviso de falha")
-                    except Exception as e2:
-                        emit("error", index=i, total=total, file=f, error="aviso de falha também falhou: " + str(e2))
     emit("done", ok=ok, fail=fail, total=total)
     return rows
 

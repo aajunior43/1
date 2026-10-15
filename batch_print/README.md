@@ -3,17 +3,28 @@
 Imprime vários documentos de uma vez: **PDF, Word, Excel, PowerPoint, OpenDocument, RTF, HTML,
 imagens, TXT e e-mails (.eml / .msg)**. Tem interface gráfica e linha de comando.
 
-## Recursos
-- Fila com arquivos e pastas (subpastas opcionais), arrastar e soltar, reordenar, remover, ordenar
-  (nome/data/tamanho/tipo), filtrar por padrão (`*.pdf, *relatorio*`), salvar e carregar a fila.
-- Opções: impressora, cópias, frente e verso (borda longa/curta), cor ou P&B, papel, paisagem,
-  ajustar à página, intervalo de páginas.
-- **Página de rosto** antes de cada arquivo (nome, pasta, caminho, tipo, nº na fila, data) com modelos
-  prontos ou texto próprio.
-- **Página de aviso** impressa quando um arquivo falha; o lote continua.
-- **E-mails**: imprime cabeçalho + corpo e, opcionalmente, os anexos suportados.
-- Progresso, cancelamento, log e **relatório** CSV/JSON. Suas escolhas ficam salvas.
-- Modo **simulação** (não imprime, só mostra o que seria feito).
+![Interface](docs/interface.png)
+
+## Organizar o que vai imprimir
+- **Fila visual** com ☑ marcar/desmarcar cada arquivo (desmarcados ficam na lista, mas não imprimem).
+- **Arrastar para reordenar**, ▲▼ (Alt+↑/↓), **desfazer/refazer** ilimitado (Ctrl+Z / Ctrl+Y).
+- **Ordenar** por natural (`doc2` antes de `doc10`), nome, data, tamanho, tipo, pasta ou nº de páginas;
+  **agrupar** por pasta ou tipo.
+- **Contagem de páginas** (PDF, Word, PowerPoint, OpenDocument, texto) e **estimativa de folhas** de papel,
+  levando em conta cópias, frente e verso, intervalos e páginas de rosto — atualizada ao vivo.
+- **Ajustes por arquivo** (duplo clique): cópias, intervalo de páginas, frente e verso, cor e nota,
+  só para aquele arquivo ou para a seleção.
+- **Buscar** na fila (nome, pasta, nota) e **manter só** os que casam com padrões (`*.pdf, *contrato*`).
+- **Verificar fila**: arquivo inexistente/vazio/ilegível, formato não suportado, PDF protegido,
+  temporários (`~$…`, `Thumbs.db`), duplicados idênticos e falta de Office/LibreOffice. Dá para
+  remover ou desmarcar os problemáticos. **Remover duplicados** com um clique.
+- **Separador de pasta** (página que avisa quando muda a pasta), **página de rosto** por arquivo,
+  **repetir a fila inteira** N vezes (conjuntos) e **duplicar** um item para reimprimir.
+- **Perfis** (conjuntos de opções com nome) e **projetos `.pbq`** que guardam fila, ajustes por arquivo e opções.
+- Arrastar e soltar arquivos do Explorer, botão direito (abrir, mostrar na pasta…), progresso, cancelar,
+  log e **relatório** CSV/JSON. Modo **simulação**.
+- Impressão: impressora, cópias, frente e verso (borda longa/curta), cor ou P&B, papel, paisagem,
+  ajustar à página, intervalo de páginas; e-mails `.eml`/`.msg` com anexos opcionais.
 
 ## Windows — instalação
 1. Instale o Python 3.12 (ou use `instalar.bat`, que usa o `winget`).
@@ -38,6 +49,10 @@ verso, papel e páginas** (aparece um aviso).
 python batch_print.py --list-printers
 python batch_print.py "C:\Docs" -r -p "Minha Impressora" -n 2 --duplex long --cover filename-folder --failed-page --report fila.csv
 python batch_print.py *.docx --sort date --filter "*relatorio*" --dry-run
+python batch_print.py "C:\Docs" -r --stats                 # páginas e folhas estimadas
+python batch_print.py "C:\Docs" -r --check                 # verifica problemas e duplicados
+python batch_print.py "C:\Docs" -r --sort folder --folder-divider --save-project lote.pbq
+python batch_print.py --project lote.pbq                    # imprime um projeto salvo
 ```
 Sem argumentos abre a interface gráfica. Veja `python batch_print.py --help`.
 
