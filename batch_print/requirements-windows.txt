@@ -1,0 +1,3 @@
+# Opcional, mas recomendado no Windows
+pywin32>=306        # converte Word/Excel/PowerPoint com o proprio Office (e abre .msg do Outlook)
+tkinterdnd2>=0.3    # arrastar e soltar arquivos na janela
