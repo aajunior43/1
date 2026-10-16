@@ -40,7 +40,19 @@ linhas alternadas, cores de estado (✔ verde, ✘ vermelho, aviso âmbar) e tex
 - Impressão: impressora, cópias, frente e verso (borda longa/curta), cor ou P&B, papel, paisagem,
   ajustar à página, intervalo de páginas; e-mails `.eml`/`.msg` com anexos opcionais.
 
-## Windows — instalação
+## Gerar o executável (o jeito mais fácil)
+Copie **só o arquivo `GERAR_EXE.bat`** para o PC Windows (qualquer pasta) e dê duplo clique. Ele faz tudo sozinho:
+1. instala o **Python 3.12** se não houver (winget ou instalador do python.org), sem precisar de administrador;
+2. baixa o código do GitHub (`aajunior43/1`);
+3. cria um ambiente virtual e instala PyInstaller, pywin32, tkinterdnd2, pypdfium2 e pillow;
+4. baixa o **SumatraPDF** e o embute no executável;
+5. roda os testes automáticos;
+6. gera **`PrintBatch.exe`** na mesma pasta do `.bat` e oferece abrir o programa.
+
+Os arquivos de trabalho ficam em `%USERPROFILE%\PrintBatch-build` (pode apagar depois). Precisa de internet.
+Se o Windows SmartScreen ou o antivírus alertar (programa novo, sem assinatura), escolha *Mais informações > Executar assim mesmo*.
+
+## Windows — instalação (alternativa, sem gerar o .exe)
 1. Instale o Python 3.12 (ou use `instalar.bat`, que usa o `winget`).
 2. Execute **`instalar.bat`**: instala `pywin32`, `tkinterdnd2` e o **SumatraPDF**.
 3. Execute **`executar.bat`** para abrir o programa.
