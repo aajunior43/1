@@ -5,6 +5,16 @@ imagens, TXT e e-mails (.eml / .msg)**. Tem interface gráfica e linha de comand
 
 ![Interface](docs/interface.png)
 
+## Pré-visualização e plano
+- **Miniatura** da página do arquivo selecionado (PDF, Word/Excel/PowerPoint, imagens, texto, e-mail), com
+  navegação página a página. Documentos Office são convertidos em segundo plano e guardados em cache.
+- **Ver a página de rosto** do arquivo antes de imprimir.
+- **Plano de impressão**: a sequência exata do que vai sair (separadores, rostos, arquivos), com folhas
+  acumuladas — também na linha de comando: `--plan`.
+- **Impressão de teste**: só a 1ª página de cada arquivo, 1 cópia, sem rosto — gasta pouco papel (`--test-print`).
+- Requer `pypdfium2` e `pillow` (já em `requirements-windows.txt`). O painel abre sozinho em telas largas
+  e pode ser ligado/desligado em “👁 Pré-visualização”.
+
 ## Organizar o que vai imprimir
 - **Fila visual** com ☑ marcar/desmarcar cada arquivo (desmarcados ficam na lista, mas não imprimem).
 - **Arrastar para reordenar**, ▲▼ (Alt+↑/↓), **desfazer/refazer** ilimitado (Ctrl+Z / Ctrl+Y).
@@ -53,6 +63,8 @@ python batch_print.py "C:\Docs" -r --stats                 # páginas e folhas e
 python batch_print.py "C:\Docs" -r --check                 # verifica problemas e duplicados
 python batch_print.py "C:\Docs" -r --sort folder --folder-divider --save-project lote.pbq
 python batch_print.py --project lote.pbq                    # imprime um projeto salvo
+python batch_print.py "C:\Docs" -r --plan --cover full      # sequência exata do que sairia
+python batch_print.py "C:\Docs" -r --test-print -p "HP"     # só a 1ª página de cada arquivo
 ```
 Sem argumentos abre a interface gráfica. Veja `python batch_print.py --help`.
 

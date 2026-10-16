@@ -190,6 +190,35 @@ class PrintQueue:
         return {"total": len(self.items), "enabled": len(files), "pages": pages, "sheets": sheets,
                 "unknown": unknown, "by_type": by_type}
 
+    def plan(self, opts: Optional[Options] = None) -> List[dict]:
+        """Sequência exata do que será impresso (rosto, separadores, arquivos) com folhas acumuladas."""
+        opts = opts or Options()
+        steps, total_sheets, last_folder, n = [], 0, None, 0
+        active = [it for it in self.items if it.enabled]
+        total = len(active) * opts.set_copies
+
+        def add(kind, label, pages, copies, sheets, **extra):
+            nonlocal total_sheets
+            total_sheets += sheets or 0
+            steps.append({"passo": len(steps) + 1, "tipo": kind, "descrição": label, "páginas": pages,
+                          "cópias": copies, "folhas": sheets, "acumulado": total_sheets, **extra})
+
+        for rep in range(opts.set_copies):
+            last_folder = None
+            for it in active:
+                n += 1
+                eff = it.effective(opts)
+                if opts.folder_divider and it.path.parent != last_folder:
+                    add("separador", f"Pasta: {it.path.parent.name or '/'}", 1, 1, 1)
+                last_folder = it.path.parent
+                if opts.cover or opts.cover_text:
+                    add("rosto", " / ".join(core.cover_lines(opts, it.path, n, total))[:80], 1, 1, 1, arquivo=it.path)
+                pg = self.pages_for_print(it)
+                add("arquivo", it.path.name + (f"  [páginas {it.pages}]" if it.pages else ""), pg, eff.copies,
+                    sheets_for(pg, eff.copies, bool(eff.duplex)), arquivo=it.path,
+                    **({"conjunto": rep + 1} if opts.set_copies > 1 else {}))
+        return steps
+
     def check(self, duplicates=True) -> List[fileinfo.Issue]:
         return fileinfo.check_files([it.path for it in self.items], duplicates)
 

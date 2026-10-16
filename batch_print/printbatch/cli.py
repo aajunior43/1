@@ -39,6 +39,8 @@ def build_parser():
     ap.add_argument("--set-copies", type=int, default=1, help="imprime a fila inteira N vezes (conjuntos)")
     ap.add_argument("--project", metavar="ARQ", help="carrega fila e opções de um projeto .pbq")
     ap.add_argument("--save-project", metavar="ARQ", help="salva a fila e as opções em um projeto .pbq")
+    ap.add_argument("--test-print", action="store_true", help="impressão de teste: só a 1ª página de cada arquivo")
+    ap.add_argument("--plan", action="store_true", help="mostra a sequência exata do que seria impresso e sai")
     ap.add_argument("--check", action="store_true", help="verifica a fila (vazios, duplicados, protegidos…) e sai")
     ap.add_argument("--stats", action="store_true", help="mostra páginas e folhas estimadas e sai")
     ap.add_argument("--report", metavar="ARQ", help="relatório .csv ou .json")
@@ -104,6 +106,16 @@ def main(argv=None):
         print("por tipo:", ", ".join(f"{k}: {v}" for k, v in sorted(s["by_type"].items())))
         return 0
 
+    if a.plan:
+        for st in q.plan(opts):
+            pg = "?" if st["páginas"] is None else st["páginas"]
+            fo = "?" if st["folhas"] is None else st["folhas"]
+            print(f"{st['passo']:>3}. {st['tipo']:<9} {st['descrição']}  — págs {pg} × {st['cópias']} → {fo} folha(s)  (total {st['acumulado']})")
+        return 0
+    items = q.items
+    if a.test_print:
+        items, opts = core.as_test_job(items, opts)
+
     def on_event(kind, **k):
         if kind == "start":
             print(f"[{k['index']}/{k['total']}] {k['file']}")
@@ -112,7 +124,7 @@ def main(argv=None):
         elif kind == "ok" and not a.dry_run:
             print("   OK")
 
-    rows = core.run_job(q.items, opts, backend, on_event)
+    rows = core.run_job(items, opts, backend, on_event)
     if a.report:
         core.write_report(a.report, rows)
         print("relatório:", a.report)

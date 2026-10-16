@@ -1,4 +1,5 @@
 """Interface gráfica (tkinter) com fila organizável."""
+import base64
 import os
 import queue
 import subprocess
@@ -8,7 +9,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, core, fileinfo
+from . import __version__, core, fileinfo, preview as pv
 from .backends import get_backend
 from .jobqueue import PrintQueue
 
@@ -122,8 +123,9 @@ class App:
     def __init__(self, root, initial=(), project=None):
         self.root = root
         root.title(f"PrintBatch {__version__} — organizar e imprimir em lote")
-        root.geometry("1280x780")
-        root.minsize(1000, 640)
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"{min(1600, sw - 40) if sw >= 1500 else min(1280, sw - 40)}x{min(820, sh - 60)}")
+        root.minsize(1000, 600)
         self.q = PrintQueue()
         self.status, self.issues = {}, {}
         self.visible = []
@@ -152,8 +154,13 @@ class App:
         main = ttk.PanedWindow(self.root, orient="horizontal")
         main.pack(fill="both", expand=True, padx=6, pady=6)
         left, right = ttk.Frame(main), ttk.Frame(main, width=350)
+        self.main, self.mid = main, ttk.Frame(main, width=330)
         main.add(left, weight=1)
         main.add(right, weight=0)
+        self.build_preview(self.mid)
+        self.preview_on = self.root.winfo_screenwidth() >= 1500
+        if self.preview_on:
+            main.insert(1, self.mid, weight=0)
 
         # --- barra 1: adicionar / editar ---
         bar = ttk.Frame(left)
@@ -163,9 +170,12 @@ class App:
         self.recursive = tk.BooleanVar(value=True)
         ttk.Checkbutton(bar, text="subpastas", variable=self.recursive).pack(side="left", **pad)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Button(bar, text="👁 Pré-visualização", command=self.toggle_preview).pack(side="left", **pad)
+        bar1b = ttk.Frame(left)
+        bar1b.pack(fill="x")
         for text, cmd in (("Remover", self.remove), ("Limpar", self.clear), ("▲", lambda: self.move(-1)), ("▼", lambda: self.move(1)),
                           ("↶ Desfazer", self.undo), ("↷ Refazer", self.redo)):
-            ttk.Button(bar, text=text, command=cmd, width=3 if len(text) == 1 else None).pack(side="left", **pad)
+            ttk.Button(bar1b, text=text, command=cmd, width=3 if len(text) == 1 else None).pack(side="left", **pad)
 
         # --- barra 2: organizar ---
         bar2 = ttk.LabelFrame(left, text="Organizar")
@@ -188,7 +198,7 @@ class App:
         ttk.Separator(bar2b, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar2b, text="Marcar todos", command=lambda: self.set_enabled(True, all_rows=True)).pack(side="left", **pad)
         ttk.Button(bar2b, text="Desmarcar todos", command=lambda: self.set_enabled(False, all_rows=True)).pack(side="left", **pad)
-        ttk.Button(bar2b, text="Ajustes do arquivo…", command=self.edit_selected).pack(side="left", **pad)
+        ttk.Button(bar2b, text="Ajustes…", command=self.edit_selected).pack(side="left", **pad)
 
         # --- barra 3: busca / filtro / seleção ---
         bar3 = ttk.Frame(left)
@@ -229,7 +239,7 @@ class App:
         self.tree.bind("<Double-1>", lambda e: self.edit_selected() if self.tree.identify_column(e.x) != "#1" else None)
         self.tree.bind("<Button-3>", self.popup)
         self.tree.bind("<Button-2>", self.popup)
-        self.tree.bind("<<TreeviewSelect>>", lambda e: self.show_details())
+        self.tree.bind("<<TreeviewSelect>>", lambda e: (self.show_details(), self.schedule_preview()))
         for seq, fn in (("<Delete>", lambda e: self.remove()), ("<space>", lambda e: self.toggle_selected()),
                         ("<Control-a>", lambda e: (self.tree.selection_set(self.tree.get_children()), "break")[1]),
                         ("<Control-z>", lambda e: self.undo()), ("<Control-y>", lambda e: self.redo()),
@@ -320,12 +330,151 @@ class App:
         act.pack(fill="x", **pad)
         self.btn_print = ttk.Button(act, text="🖨  Imprimir marcados  (Ctrl+P)", command=self.start)
         self.btn_print.pack(fill="x", **pad)
+        ttk.Button(act, text="Ver plano de impressão…", command=self.show_plan).pack(fill="x", **pad)
+        ttk.Button(act, text="Imprimir teste (1ª página de cada)", command=lambda: self.start(test=True)).pack(fill="x", **pad)
         self.btn_cancel = ttk.Button(act, text="Cancelar", command=self.cancel.set, state="disabled")
         self.btn_cancel.pack(fill="x", **pad)
         for text, cmd in (("Abrir projeto…", self.open_project_dialog), ("Salvar projeto…", self.save_project),
                           ("Salvar relatório…", self.save_report)):
             ttk.Button(act, text=text, command=cmd).pack(fill="x", **pad)
         self.toggle_cover()
+
+    # ================= pré-visualização =================
+    def build_preview(self, f):
+        self.previewer = pv.Previewer()
+        self.prev_req, self.prev_index, self.prev_total, self.prev_job = 0, 0, 0, None
+        self.prev_img = None
+        box = ttk.LabelFrame(f, text="Pré-visualização")
+        box.pack(fill="both", expand=True, padx=4, pady=2)
+        self.prev_title = ttk.Label(box, text="", font=("TkDefaultFont", 9, "bold"), wraplength=300)
+        self.prev_title.pack(fill="x", padx=6, pady=(4, 0))
+        self.prev_canvas = tk.Label(box, text="Selecione um arquivo", background="#e8e8e8", anchor="center",
+                                    width=44, height=24)
+        self.prev_canvas.pack(fill="both", expand=True, padx=6, pady=4)
+        nav = ttk.Frame(box)
+        nav.pack(fill="x")
+        ttk.Button(nav, text="◀", width=3, command=lambda: self.prev_goto(-1)).pack(side="left", padx=6)
+        self.prev_page = ttk.Label(nav, text="")
+        self.prev_page.pack(side="left", expand=True)
+        ttk.Button(nav, text="▶", width=3, command=lambda: self.prev_goto(1)).pack(side="right", padx=6)
+        self.show_cover = tk.BooleanVar()
+        ttk.Checkbutton(box, text="Ver a página de rosto deste arquivo", variable=self.show_cover,
+                        command=self.schedule_preview).pack(anchor="w", padx=6, pady=2)
+        self.prev_note = ttk.Label(box, text="", foreground="gray", wraplength=300)
+        self.prev_note.pack(fill="x", padx=6, pady=(0, 4))
+        ttk.Button(box, text="Abrir arquivo", command=self.open_selected).pack(fill="x", padx=6, pady=(0, 6))
+
+    def toggle_preview(self):
+        if self.preview_on:
+            self.main.forget(self.mid)
+        else:
+            self.main.insert(1, self.mid, weight=0)
+        self.preview_on = not self.preview_on
+        self.schedule_preview()
+
+    def schedule_preview(self, reset=True):
+        if reset:
+            self.prev_index = 0
+        if self.prev_job:
+            self.root.after_cancel(self.prev_job)
+        self.prev_job = self.root.after(120, self.request_preview)
+
+    def prev_goto(self, d):
+        if self.prev_total:
+            self.prev_index = max(0, min(self.prev_total - 1, self.prev_index + d))
+            self.schedule_preview(reset=False)
+
+    def request_preview(self):
+        self.prev_job = None
+        if not self.preview_on:
+            return
+        sel = self.selected()
+        if not sel:
+            self.prev_title.config(text="")
+            self.prev_canvas.config(image="", text="Selecione um arquivo")
+            self.prev_page.config(text="")
+            self.prev_note.config(text="")
+            return
+        i = sel[0]
+        it = self.q.items[i]
+        self.prev_req += 1
+        req, index, cover = self.prev_req, self.prev_index, self.show_cover.get()
+        self.prev_title.config(text=it.path.name)
+        slow = it.path.suffix.lower() in core.OFFICE
+        self.prev_note.config(text="Convertendo o documento… (pode levar alguns segundos)" if slow else "")
+        try:
+            opts = self.options(validate=False)
+        except Exception:
+            opts = core.Options()
+        total = max(1, sum(1 for x in self.q.items if x.enabled))
+        pos = 1 + sum(1 for x in self.q.items[:i] if x.enabled)
+
+        def work():
+            try:
+                if cover:
+                    if not (opts.cover or opts.cover_text):
+                        opts.cover = "filename-folder"
+                    pdf = self.previewer.cover_pdf(opts, it.path, pos, total)
+                    png, n = self.previewer.render_pdf(pdf, 0)
+                else:
+                    png, n = self.previewer.render(it.path, index)
+                self.events.put(("preview", {"req": req, "png": png, "n": n, "index": index, "cover": cover}))
+            except Exception as e:
+                self.events.put(("preview", {"req": req, "error": str(e)}))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_preview(self, d):
+        if d["req"] != self.prev_req:
+            return
+        if d.get("error"):
+            self.prev_canvas.config(image="", text="Sem pré-visualização")
+            self.prev_note.config(text=d["error"])
+            self.prev_page.config(text="")
+            self.prev_total = 0
+            return
+        self.prev_img = tk.PhotoImage(data=base64.b64encode(d["png"]).decode())
+        self.prev_canvas.config(image=self.prev_img, text="")
+        self.prev_note.config(text="Página de rosto (modelo atual)" if d["cover"] else "")
+        self.prev_total = 1 if d["cover"] else d["n"]
+        self.prev_page.config(text="rosto" if d["cover"] else f"página {d['index'] + 1} de {d['n']}")
+
+    # ================= plano de impressão =================
+    def show_plan(self):
+        try:
+            opts = self.options()
+        except (ValueError, tk.TclError) as e:
+            messagebox.showerror("PrintBatch", str(e))
+            return
+        steps = self.q.plan(opts)
+        if not steps:
+            messagebox.showinfo("PrintBatch", "Nenhum arquivo marcado na fila.")
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Plano de impressão — o que vai sair, na ordem")
+        win.geometry("900x520")
+        win.transient(self.root)
+        cols = ("passo", "tipo", "desc", "pags", "cop", "folhas", "acum")
+        t = ttk.Treeview(win, columns=cols, show="headings")
+        for c, h, w, a in (("passo", "#", 44, "center"), ("tipo", "Tipo", 80, "w"), ("desc", "Descrição", 430, "w"),
+                           ("pags", "Págs", 56, "center"), ("cop", "Cópias", 60, "center"),
+                           ("folhas", "Folhas", 60, "center"), ("acum", "Acumulado", 80, "center")):
+            t.heading(c, text=h)
+            t.column(c, width=w, anchor=a)
+        t.tag_configure("rosto", foreground="#7f8c8d")
+        t.tag_configure("separador", foreground="#2874a6")
+        for st in steps:
+            t.insert("", "end", tags=(st["tipo"],), values=(
+                st["passo"], st["tipo"], st["descrição"], "?" if st["páginas"] is None else st["páginas"],
+                st["cópias"], "?" if st["folhas"] is None else st["folhas"], st["acumulado"]))
+        t.pack(fill="both", expand=True, padx=8, pady=8)
+        s = self.q.stats(opts)
+        ttk.Label(win, text=f"{s['enabled']} arquivo(s) • {s['pages']} página(s) • ≈ {s['sheets']} folha(s) de papel"
+                            + (f" • {s['unknown']} sem contagem de páginas" if s["unknown"] else "")).pack(anchor="w", padx=8)
+        b = ttk.Frame(win)
+        b.pack(fill="x", padx=8, pady=8)
+        ttk.Button(b, text="Fechar", command=win.destroy).pack(side="right", padx=4)
+        ttk.Button(b, text="Imprimir agora", command=lambda: (win.destroy(), self.start())).pack(side="right", padx=4)
 
     def toggle_cover(self):
         if COVER_NAMES[self.cover.get()] == "custom":
@@ -666,7 +815,7 @@ class App:
         return o
 
     # ================= execução =================
-    def start(self):
+    def start(self, test=False):
         enabled = [it for it in self.q.items if it.enabled]
         if not enabled:
             messagebox.showinfo("PrintBatch", "Nenhum arquivo marcado na fila.")
@@ -677,10 +826,16 @@ class App:
         except (ValueError, tk.TclError) as e:
             messagebox.showerror("PrintBatch", str(e))
             return "break"
-        s = self.q.stats(opts)
+        items = [core.Item(i.path, i.enabled, i.copies, i.pages, i.duplex, i.color, i.note) for i in self.q.items]
+        if test:
+            items, opts = core.as_test_job(items, opts)
+        tq = PrintQueue()
+        tq.items = items
+        s = tq.stats(opts)
+        what = "IMPRESSÃO DE TESTE (só a 1ª página de cada)\n" if test else ""
         if not opts.dry_run and not messagebox.askyesno(
                 "Confirmar impressão",
-                f"Imprimir {s['enabled']} arquivo(s) — {s['pages']} página(s), ≈ {s['sheets']} folha(s) —\n"
+                f"{what}Imprimir {s['enabled']} arquivo(s) — {s['pages']} página(s), ≈ {s['sheets']} folha(s) —\n"
                 f"em “{opts.printer or 'impressora padrão'}”?"):
             return "break"
         self.cfg.update(self.get_state())
@@ -691,7 +846,6 @@ class App:
         self.progress.config(maximum=s["enabled"] * opts.set_copies, value=0)
         self.btn_print.config(state="disabled")
         self.btn_cancel.config(state="normal")
-        items = [core.Item(i.path, i.enabled, i.copies, i.pages, i.duplex, i.color, i.note) for i in self.q.items]
         backend = get_backend(opts.dry_run, log=lambda *a: self.events.put(("log", " ".join(map(str, a)))))
 
         def work():
@@ -710,6 +864,8 @@ class App:
                 kind, data = self.events.get_nowait()
                 if kind == "log":
                     self.log(data)
+                elif kind == "preview":
+                    self.on_preview(data)
                 elif kind == "start":
                     self.mark(data["file"], "imprimindo…")
                 elif kind == "ok":

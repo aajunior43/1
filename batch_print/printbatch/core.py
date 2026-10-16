@@ -311,6 +311,15 @@ def prepare(f, tmp, opts, depth=0):
     raise RuntimeError("formato não suportado: " + ext)
 
 
+def as_test_job(files, opts: Options):
+    """Impressão de teste: só a 1ª página de cada arquivo marcado, 1 cópia, sem rosto/separadores."""
+    from dataclasses import replace
+    items = [x if isinstance(x, Item) else Item(x) for x in files]
+    test_items = [Item(i.path, i.enabled, 1, "1", i.duplex, i.color, i.note) for i in items]
+    return test_items, replace(opts, copies=1, pages=None, cover=None, cover_text=None,
+                               folder_divider=False, set_copies=1, attachments=False)
+
+
 # ---------- Execução ----------
 Event = Callable[..., None]
 
@@ -336,6 +345,7 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
     last_folder = None
     with tempfile.TemporaryDirectory(prefix="printbatch_") as tmp:
         for rep in range(opts.set_copies):
+            last_folder = None
             for it in active:
                 if cancel is not None and cancel.is_set():
                     emit("cancelled", index=n + 1, total=total)
