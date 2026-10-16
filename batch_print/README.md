@@ -3,7 +3,11 @@
 Imprime vários documentos de uma vez: **PDF, Word, Excel, PowerPoint, OpenDocument, RTF, HTML,
 imagens, TXT e e-mails (.eml / .msg)**. Tem interface gráfica e linha de comando.
 
-![Interface](docs/interface.png)
+![Interface clara](docs/interface.png)
+![Interface escura](docs/interface-escuro.png)
+
+Visual moderno com **tema claro e escuro** (botão no canto superior direito, lembrado na próxima abertura),
+linhas alternadas, cores de estado (✔ verde, ✘ vermelho, aviso âmbar) e texto nítido em telas de alta resolução.
 
 ## Pré-visualização e plano
 - **Miniatura** da página do arquivo selecionado (PDF, Word/Excel/PowerPoint, imagens, texto, e-mail), com

@@ -9,7 +9,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, core, fileinfo, preview as pv
+from . import __version__, core, fileinfo, preview as pv, theme
 from .backends import get_backend
 from .jobqueue import PrintQueue
 
@@ -75,6 +75,7 @@ class ItemDialog(tk.Toplevel):
         self.app, self.indices = app, indices
         self.title(f"Ajustes de {len(indices)} arquivo(s)")
         self.transient(app.root)
+        self.configure(background=app.pal["bg"])
         self.resizable(False, False)
         first = app.q.items[indices[0]]
         f = ttk.Frame(self, padding=12)
@@ -124,7 +125,7 @@ class App:
         self.root = root
         root.title(f"PrintBatch {__version__} — organizar e imprimir em lote")
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-        root.geometry(f"{min(1600, sw - 40) if sw >= 1500 else min(1280, sw - 40)}x{min(820, sh - 60)}")
+        root.geometry(f"{min(1600, sw - 40) if sw >= 1500 else min(1280, sw - 40)}x{min(860, sh - 60)}")
         root.minsize(1000, 600)
         self.q = PrintQueue()
         self.status, self.issues = {}, {}
@@ -133,6 +134,8 @@ class App:
         self.cancel = threading.Event()
         self.worker, self.rows = None, []
         self.cfg = core.load_config()
+        self.mode = self.cfg.get("theme", "light")
+        self.pal = theme.apply(root, self.mode)
         self.backend = get_backend(False)
         self.drag = None
         self.build()
@@ -150,9 +153,18 @@ class App:
 
     # ================= construção =================
     def build(self):
-        pad = dict(padx=4, pady=2)
+        pad = dict(padx=4, pady=3)
+        header = ttk.Frame(self.root)
+        header.pack(fill="x", padx=14, pady=(12, 2))
+        ttk.Label(header, text="🖨  PrintBatch", style="Title.TLabel").pack(side="left")
+        ttk.Label(header, text="Organize e imprima documentos em lote", style="Subtitle.TLabel").pack(side="left", padx=14, pady=(7, 0))
+        self.theme_btn = ttk.Button(header, text="☾ Escuro" if self.mode == "light" else "☀ Claro",
+                                    style="Tool.TButton", command=self.toggle_theme)
+        self.theme_btn.pack(side="right")
+        self.summary = ttk.Label(header, text="", style="Chip.TLabel")
+        self.summary.pack(side="right", padx=12)
         main = ttk.PanedWindow(self.root, orient="horizontal")
-        main.pack(fill="both", expand=True, padx=6, pady=6)
+        main.pack(fill="both", expand=True, padx=10, pady=(4, 10))
         left, right = ttk.Frame(main), ttk.Frame(main, width=350)
         self.main, self.mid = main, ttk.Frame(main, width=330)
         main.add(left, weight=1)
@@ -166,16 +178,16 @@ class App:
         bar = ttk.Frame(left)
         bar.pack(fill="x")
         for text, cmd in (("＋ Arquivos…", self.add_files), ("＋ Pasta…", self.add_folder)):
-            ttk.Button(bar, text=text, command=cmd).pack(side="left", **pad)
+            ttk.Button(bar, style="Tool.TButton", text=text, command=cmd).pack(side="left", **pad)
         self.recursive = tk.BooleanVar(value=True)
         ttk.Checkbutton(bar, text="subpastas", variable=self.recursive).pack(side="left", **pad)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="👁 Pré-visualização", command=self.toggle_preview).pack(side="left", **pad)
+        ttk.Button(bar, style="Tool.TButton", text="👁 Pré-visualização", command=self.toggle_preview).pack(side="left", **pad)
         bar1b = ttk.Frame(left)
         bar1b.pack(fill="x")
         for text, cmd in (("Remover", self.remove), ("Limpar", self.clear), ("▲", lambda: self.move(-1)), ("▼", lambda: self.move(1)),
                           ("↶ Desfazer", self.undo), ("↷ Refazer", self.redo)):
-            ttk.Button(bar1b, text=text, command=cmd, width=3 if len(text) == 1 else None).pack(side="left", **pad)
+            ttk.Button(bar1b, style="Tool.TButton", text=text, command=cmd, width=3 if len(text) == 1 else None).pack(side="left", **pad)
 
         # --- barra 2: organizar ---
         bar2 = ttk.LabelFrame(left, text="Organizar")
@@ -184,21 +196,22 @@ class App:
         bar2a.pack(fill="x")
         ttk.Label(bar2a, text="Ordenar por").pack(side="left", **pad)
         self.sort = tk.StringVar(value="Natural (doc2 < doc10)")
-        ttk.Combobox(bar2a, textvariable=self.sort, values=list(SORT_LABELS), width=20, state="readonly").pack(side="left")
+        ttk.Combobox(bar2a, textvariable=self.sort, values=list(SORT_LABELS), width=17, state="readonly").pack(side="left")
         self.reverse = tk.BooleanVar()
         ttk.Checkbutton(bar2a, text="inverter", variable=self.reverse).pack(side="left", **pad)
-        ttk.Button(bar2a, text="Aplicar", command=self.apply_sort).pack(side="left", **pad)
-        ttk.Button(bar2a, text="Agrupar por pasta", command=lambda: self.apply_sort("folder")).pack(side="left", **pad)
-        ttk.Button(bar2a, text="Agrupar por tipo", command=lambda: self.apply_sort("type")).pack(side="left", **pad)
+        ttk.Button(bar2a, style="Tool.TButton", text="Aplicar", command=self.apply_sort).pack(side="left", **pad)
+        ttk.Label(bar2a, text="Agrupar:", style="Muted.TLabel").pack(side="left", padx=(12, 2))
+        ttk.Button(bar2a, style="Tool.TButton", text="Pasta", command=lambda: self.apply_sort("folder")).pack(side="left", **pad)
+        ttk.Button(bar2a, style="Tool.TButton", text="Tipo", command=lambda: self.apply_sort("type")).pack(side="left", **pad)
         bar2b = ttk.Frame(bar2)
         bar2b.pack(fill="x")
-        ttk.Button(bar2b, text="Remover duplicados", command=self.remove_duplicates).pack(side="left", **pad)
-        ttk.Button(bar2b, text="Remover desmarcados", command=lambda: (self.q.remove_disabled(), self.refresh())).pack(side="left", **pad)
-        ttk.Button(bar2b, text="✓ Verificar fila", command=self.verify).pack(side="left", **pad)
+        ttk.Button(bar2b, style="Tool.TButton", text="Remover duplicados", command=self.remove_duplicates).pack(side="left", **pad)
+        ttk.Button(bar2b, style="Tool.TButton", text="Remover desmarcados", command=lambda: (self.q.remove_disabled(), self.refresh())).pack(side="left", **pad)
+        ttk.Button(bar2b, style="Tool.TButton", text="✓ Verificar fila", command=self.verify).pack(side="left", **pad)
         ttk.Separator(bar2b, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar2b, text="Marcar todos", command=lambda: self.set_enabled(True, all_rows=True)).pack(side="left", **pad)
-        ttk.Button(bar2b, text="Desmarcar todos", command=lambda: self.set_enabled(False, all_rows=True)).pack(side="left", **pad)
-        ttk.Button(bar2b, text="Ajustes…", command=self.edit_selected).pack(side="left", **pad)
+        ttk.Button(bar2b, style="Tool.TButton", text="Marcar", command=lambda: self.set_enabled(True, all_rows=True)).pack(side="left", **pad)
+        ttk.Button(bar2b, style="Tool.TButton", text="Desmarcar", command=lambda: self.set_enabled(False, all_rows=True)).pack(side="left", **pad)
+        ttk.Button(bar2b, style="Tool.TButton", text="Ajustes…", command=self.edit_selected).pack(side="left", **pad)
 
         # --- barra 3: busca / filtro / seleção ---
         bar3 = ttk.Frame(left)
@@ -207,11 +220,11 @@ class App:
         self.search = tk.StringVar()
         self.search.trace_add("write", lambda *a: self.refresh())
         ttk.Entry(bar3, textvariable=self.search, width=22).pack(side="left")
-        ttk.Button(bar3, text="✕", width=2, command=lambda: self.search.set("")).pack(side="left", **pad)
+        ttk.Button(bar3, style="Tool.TButton", text="✕", width=2, command=lambda: self.search.set("")).pack(side="left", **pad)
         ttk.Label(bar3, text="Manter só (padrões)").pack(side="left", padx=(14, 2))
         self.filter = tk.StringVar()
         ttk.Entry(bar3, textvariable=self.filter, width=18).pack(side="left")
-        ttk.Button(bar3, text="Aplicar", command=self.apply_filter).pack(side="left", **pad)
+        ttk.Button(bar3, style="Tool.TButton", text="Aplicar", command=self.apply_filter).pack(side="left", **pad)
 
         # --- lista ---
         frame = ttk.Frame(left)
@@ -229,10 +242,7 @@ class App:
         xs.grid(row=1, column=0, sticky="ew")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
-        self.tree.tag_configure("off", foreground="#9a9a9a")
-        self.tree.tag_configure("erro", foreground="#c0392b")
-        self.tree.tag_configure("aviso", foreground="#b9770e")
-        self.tree.tag_configure("ok", foreground="#1e8449")
+        self.style_tags()
         self.tree.bind("<ButtonPress-1>", self.on_press)
         self.tree.bind("<B1-Motion>", self.on_motion)
         self.tree.bind("<ButtonRelease-1>", self.on_release)
@@ -250,38 +260,39 @@ class App:
             self.tree.drop_target_register(DND_FILES)
             self.tree.dnd_bind("<<Drop>>", lambda e: self.add_paths(self.root.tk.splitlist(e.data)))
         self.menu = tk.Menu(self.root, tearoff=0)
+        theme.style_menu(self.menu, self.pal)
         for label, cmd in (("Abrir arquivo", self.open_selected), ("Mostrar na pasta", self.reveal_selected),
                            (None, None), ("Marcar/desmarcar", self.toggle_selected), ("Ajustes do arquivo…", self.edit_selected),
                            ("Duplicar na fila (reimprimir)", self.duplicate_selected), (None, None), ("Remover da fila", self.remove)):
             self.menu.add_separator() if label is None else self.menu.add_command(label=label, command=cmd)
 
         # --- resumo / detalhes / progresso / log ---
-        self.summary = ttk.Label(left, text="", font=("TkDefaultFont", 10, "bold"))
-        self.summary.pack(anchor="w")
-        self.details = ttk.Label(left, text="", foreground="gray")
-        self.details.pack(anchor="w")
+        self.details = ttk.Label(left, text="", style="Muted.TLabel")
+        self.details.pack(anchor="w", pady=(2, 0))
         self.progress = ttk.Progressbar(left, mode="determinate")
         self.progress.pack(fill="x", pady=2)
         self.logbox = tk.Text(left, height=7, state="disabled", wrap="word")
+        theme.style_text(self.logbox, self.pal)
         self.logbox.pack(fill="x", pady=3)
 
         # ================= painel direito =================
-        pr = ttk.LabelFrame(right, text="Perfis")
+        pr = ttk.LabelFrame(right, text="Perfil")
         pr.pack(fill="x", **pad)
         self.preset = tk.StringVar()
-        self.preset_cb = ttk.Combobox(pr, textvariable=self.preset, width=24)
-        self.preset_cb.grid(row=0, column=0, columnspan=3, sticky="we", **pad)
+        self.preset_cb = ttk.Combobox(pr, textvariable=self.preset, width=18)
+        self.preset_cb.pack(side="left", fill="x", expand=True, padx=4, pady=2)
         self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.load_preset())
-        ttk.Button(pr, text="Salvar perfil", command=self.save_preset).grid(row=1, column=0, **pad)
-        ttk.Button(pr, text="Excluir", command=self.delete_preset).grid(row=1, column=1, **pad)
+        ttk.Button(pr, text="Salvar", style="Tool.TButton", command=self.save_preset).pack(side="left", padx=2, pady=2)
+        ttk.Button(pr, text="✕", width=3, style="Tool.TButton", command=self.delete_preset).pack(side="left", padx=2, pady=2)
 
+        rpad = dict(padx=4, pady=1)
         box = ttk.LabelFrame(right, text="Impressão")
-        box.pack(fill="x", **pad)
-        ttk.Label(box, text="Impressora").grid(row=0, column=0, sticky="w", **pad)
+        box.pack(fill="x", **rpad)
+        ttk.Label(box, text="Impressora").grid(row=0, column=0, sticky="w", **rpad)
         self.printer = tk.StringVar()
         self.printer_cb = ttk.Combobox(box, textvariable=self.printer, state="readonly", width=24)
-        self.printer_cb.grid(row=1, column=0, columnspan=2, sticky="we", **pad)
-        ttk.Button(box, text="↻", width=3, command=self.load_printers).grid(row=1, column=2, **pad)
+        self.printer_cb.grid(row=1, column=0, columnspan=2, sticky="we", **rpad)
+        ttk.Button(box, text="↻", width=3, command=self.load_printers).grid(row=1, column=2, **rpad)
         self.copies = tk.IntVar(value=1)
         self.set_copies = tk.IntVar(value=1)
         self.duplex = tk.StringVar(value="Desligado")
@@ -296,22 +307,23 @@ class App:
                 ("Papel", ttk.Combobox(box, textvariable=self.paper, values=PAPERS, width=8)),
                 ("Páginas (todos)", ttk.Entry(box, textvariable=self.pages, width=12)))
         for r, (label, w) in enumerate(grid, start=2):
-            ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", **pad)
-            w.grid(row=r, column=1, columnspan=2, sticky="w", **pad)
-        ttk.Checkbutton(box, text="Paisagem", variable=self.landscape).grid(row=8, column=0, sticky="w", **pad)
-        ttk.Checkbutton(box, text="Ajustar à página", variable=self.fit).grid(row=8, column=1, columnspan=2, sticky="w", **pad)
+            ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", **rpad)
+            w.grid(row=r, column=1, columnspan=2, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Paisagem", variable=self.landscape).grid(row=8, column=0, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Ajustar à página", variable=self.fit).grid(row=8, column=1, columnspan=2, sticky="w", **rpad)
 
         ext = ttk.LabelFrame(right, text="Separadores e extras")
-        ext.pack(fill="x", **pad)
+        ext.pack(fill="x", **rpad)
         self.cover = tk.StringVar(value="Sem página de rosto")
-        ttk.Label(ext, text="Página de rosto (antes de cada arquivo)").pack(anchor="w", **pad)
+        ttk.Label(ext, text="Página de rosto (antes de cada arquivo)").pack(anchor="w", **rpad)
         cb = ttk.Combobox(ext, textvariable=self.cover, values=list(COVER_NAMES), state="readonly")
-        cb.pack(fill="x", **pad)
+        cb.pack(fill="x", **rpad)
         cb.bind("<<ComboboxSelected>>", lambda e: (self.toggle_cover(), self.update_summary()))
         self.cover_text = tk.Text(ext, height=4, width=30)
+        theme.style_text(self.cover_text, self.pal)
         self.cover_text.insert("1.0", "{name}\nPasta: {folder}\nArquivo {index} de {total}")
         self.cover_hint = ttk.Label(ext, text="Campos: {name} {folder} {folder_path} {ext} {index} {total} {date}",
-                                    foreground="gray", wraplength=290)
+                                    style="Muted.TLabel", wraplength=290)
         self.divider = tk.BooleanVar()
         self.failed = tk.BooleanVar(value=True)
         self.attach = tk.BooleanVar()
@@ -322,22 +334,56 @@ class App:
                           ("Imprimir aviso se um arquivo falhar", self.failed),
                           ("Imprimir anexos de e-mails (.eml)", self.attach),
                           ("Simular (não imprime)", self.dry)):
-            ttk.Checkbutton(self.check_frame, text=text, variable=var).pack(anchor="w", **pad)
+            ttk.Checkbutton(self.check_frame, text=text, variable=var).pack(anchor="w", **rpad)
         for v in (self.copies, self.set_copies, self.duplex, self.pages, self.divider):
             v.trace_add("write", lambda *a: self.update_summary())
 
         act = ttk.Frame(right)
-        act.pack(fill="x", **pad)
-        self.btn_print = ttk.Button(act, text="🖨  Imprimir marcados  (Ctrl+P)", command=self.start)
-        self.btn_print.pack(fill="x", **pad)
-        ttk.Button(act, text="Ver plano de impressão…", command=self.show_plan).pack(fill="x", **pad)
-        ttk.Button(act, text="Imprimir teste (1ª página de cada)", command=lambda: self.start(test=True)).pack(fill="x", **pad)
-        self.btn_cancel = ttk.Button(act, text="Cancelar", command=self.cancel.set, state="disabled")
-        self.btn_cancel.pack(fill="x", **pad)
+        act.pack(fill="x", padx=4, pady=(8, 2))
+        self.btn_print = ttk.Button(act, text="🖨  Imprimir marcados  (Ctrl+P)", style="Accent.TButton", command=self.start)
+        self.btn_print.pack(fill="x", pady=(0, 4))
+        row = ttk.Frame(act)
+        row.pack(fill="x")
+        ttk.Button(row, text="Ver plano…", style="Tool.TButton", command=self.show_plan).pack(side="left", fill="x", expand=True, padx=(0, 3))
+        ttk.Button(row, text="Imprimir teste", style="Tool.TButton", command=lambda: self.start(test=True)).pack(side="left", fill="x", expand=True, padx=(3, 0))
+        row2 = ttk.Frame(act)
+        row2.pack(fill="x", pady=(4, 0))
+        self.btn_cancel = ttk.Button(row2, text="Cancelar", style="Danger.TButton", command=self.cancel.set, state="disabled")
+        self.btn_cancel.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        more = ttk.Menubutton(row2, text="Mais ▾", style="Tool.TButton")
+        mm = tk.Menu(more, tearoff=0)
+        theme.style_menu(mm, self.pal)
         for text, cmd in (("Abrir projeto…", self.open_project_dialog), ("Salvar projeto…", self.save_project),
                           ("Salvar relatório…", self.save_report)):
-            ttk.Button(act, text=text, command=cmd).pack(fill="x", **pad)
+            mm.add_command(label=text, command=cmd)
+        more["menu"] = mm
+        more.pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self.more_menu = mm
         self.toggle_cover()
+
+    # ================= aparência =================
+    def style_tags(self):
+        p = self.pal
+        self.tree.tag_configure("odd", background=p["zebra"])
+        self.tree.tag_configure("even", background=p["card"])
+        self.tree.tag_configure("off", foreground=p["off"])
+        self.tree.tag_configure("erro", foreground=p["error"])
+        self.tree.tag_configure("aviso", foreground=p["warn"])
+        self.tree.tag_configure("ok", foreground=p["ok"])
+
+    def toggle_theme(self):
+        self.mode = "dark" if self.mode == "light" else "light"
+        self.cfg["theme"] = self.mode
+        self.pal = theme.apply(self.root, self.mode)
+        self.theme_btn.config(text="☾ Escuro" if self.mode == "light" else "☀ Claro")
+        theme.style_text(self.logbox, self.pal)
+        theme.style_text(self.cover_text, self.pal)
+        theme.style_menu(self.menu, self.pal)
+        theme.style_menu(self.more_menu, self.pal)
+        self.prev_canvas.config(background=self.pal["preview_bg"], foreground=self.pal["muted"])
+        self.prev_title.config(font=(self.pal["font"], 10, "bold"))
+        self.style_tags()
+        self.refresh()
 
     # ================= pré-visualização =================
     def build_preview(self, f):
@@ -346,9 +392,9 @@ class App:
         self.prev_img = None
         box = ttk.LabelFrame(f, text="Pré-visualização")
         box.pack(fill="both", expand=True, padx=4, pady=2)
-        self.prev_title = ttk.Label(box, text="", font=("TkDefaultFont", 9, "bold"), wraplength=300)
+        self.prev_title = ttk.Label(box, text="", font=(self.pal["font"], 10, "bold"), wraplength=300)
         self.prev_title.pack(fill="x", padx=6, pady=(4, 0))
-        self.prev_canvas = tk.Label(box, text="Selecione um arquivo", background="#e8e8e8", anchor="center",
+        self.prev_canvas = tk.Label(box, text="Selecione um arquivo", background=self.pal["preview_bg"], foreground=self.pal["muted"], anchor="center",
                                     width=44, height=24)
         self.prev_canvas.pack(fill="both", expand=True, padx=6, pady=4)
         nav = ttk.Frame(box)
@@ -360,7 +406,7 @@ class App:
         self.show_cover = tk.BooleanVar()
         ttk.Checkbutton(box, text="Ver a página de rosto deste arquivo", variable=self.show_cover,
                         command=self.schedule_preview).pack(anchor="w", padx=6, pady=2)
-        self.prev_note = ttk.Label(box, text="", foreground="gray", wraplength=300)
+        self.prev_note = ttk.Label(box, text="", style="Muted.TLabel", wraplength=300)
         self.prev_note.pack(fill="x", padx=6, pady=(0, 4))
         ttk.Button(box, text="Abrir arquivo", command=self.open_selected).pack(fill="x", padx=6, pady=(0, 6))
 
@@ -451,6 +497,7 @@ class App:
             messagebox.showinfo("PrintBatch", "Nenhum arquivo marcado na fila.")
             return
         win = tk.Toplevel(self.root)
+        win.configure(background=self.pal["bg"])
         win.title("Plano de impressão — o que vai sair, na ordem")
         win.geometry("900x520")
         win.transient(self.root)
@@ -461,8 +508,8 @@ class App:
                            ("folhas", "Folhas", 60, "center"), ("acum", "Acumulado", 80, "center")):
             t.heading(c, text=h)
             t.column(c, width=w, anchor=a)
-        t.tag_configure("rosto", foreground="#7f8c8d")
-        t.tag_configure("separador", foreground="#2874a6")
+        t.tag_configure("rosto", foreground=self.pal["muted"])
+        t.tag_configure("separador", foreground=self.pal["accent"])
         for st in steps:
             t.insert("", "end", tags=(st["tipo"],), values=(
                 st["passo"], st["tipo"], st["descrição"], "?" if st["páginas"] is None else st["páginas"],
@@ -497,7 +544,7 @@ class App:
                 size = "—"
             pg = self.q.pages(it)
             sel_pages = self.q.pages_for_print(it)
-            tags = []
+            tags = ["odd" if pos % 2 else "even"]
             if not it.enabled:
                 tags.append("off")
             issue = self.issues.get(str(it.path))
@@ -528,10 +575,9 @@ class App:
         except Exception:
             opts = core.Options()
         s = self.q.stats(opts)
-        extra = f" (+{s['unknown']} sem contagem de páginas)" if s["unknown"] else ""
-        shown = f" — exibindo {len(self.visible)}" if len(self.visible) != len(self.q) else ""
-        self.summary.config(text=f"{s['enabled']} de {s['total']} arquivo(s) marcados — {s['pages']} página(s) — "
-                                 f"≈ {s['sheets']} folha(s) de papel{extra}{shown}")
+        extra = f"  (+{s['unknown']} sem contagem)" if s["unknown"] else ""
+        shown = f"  •  exibindo {len(self.visible)}" if len(self.visible) != len(self.q) else ""
+        self.summary.config(text=f"{s['enabled']}/{s['total']} marcados  •  {s['pages']} págs  •  ≈ {s['sheets']} folhas{extra}{shown}")
 
     def show_details(self):
         sel = self.selected()
@@ -703,6 +749,7 @@ class App:
             return
         errs = sum(i.level == "erro" for i in issues)
         win = tk.Toplevel(self.root)
+        win.configure(background=self.pal["bg"])
         win.title(f"Verificação: {errs} erro(s), {len(issues) - errs} aviso(s)")
         win.geometry("760x420")
         win.transient(self.root)
@@ -712,8 +759,8 @@ class App:
             t.column(c, width=w, anchor="w")
         for i in issues:
             t.insert("", "end", values=(i.level, i.path.name, i.message), tags=(i.level,))
-        t.tag_configure("erro", foreground="#c0392b")
-        t.tag_configure("aviso", foreground="#b9770e")
+        t.tag_configure("erro", foreground=self.pal["error"])
+        t.tag_configure("aviso", foreground=self.pal["warn"])
         t.pack(fill="both", expand=True, padx=8, pady=8)
         b = ttk.Frame(win)
         b.pack(fill="x", padx=8, pady=(0, 8))
@@ -969,6 +1016,7 @@ class App:
 
 
 def run_gui(initial=(), project=None):
+    theme.enable_hidpi()
     root = _Root()
     App(root, list(initial), project)
     root.mainloop()
