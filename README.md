@@ -1,11 +1,15 @@
 # Engenharia reversa — apps analisados e projetos criados
 
 Cada **app analisado** tem uma pasta própria na raiz. Dentro dela ficam o registro da análise (`ANALISE.md`) e,
-em pastas à parte, os **projetos criados** a partir dela. Projetos que não nasceram de análise ficam em `outros/`.
+em pastas à parte, os **projetos criados** a partir dela. Projetos que não nasceram de análise ficam em `outros/`, e as ferramentas de apoio em `ferramentas/`.
 
 | App analisado | Projeto(s) criado(s) |
 |---|---|
 | [`print-conductor/`](print-conductor) — impressão em lote para Windows ([análise](print-conductor/ANALISE.md)) | [`print-batch/`](print-conductor/print-batch) — **PrintBatch**: impressão em lote para Windows, Linux e macOS, com fila organizável, pré-visualização, plano de impressão, páginas de rosto e relatórios |
+
+| Ferramentas | O que é |
+|---|---|
+| [`ferramentas/rea`](ferramentas/rea) | **REA** (Reverse Engineer Anything) — a ferramenta usada nas análises; cópia do repositório oficial, com a origem em [`UPSTREAM.md`](ferramentas/rea/UPSTREAM.md) |
 
 | Outros projetos | O que é |
 |---|---|
