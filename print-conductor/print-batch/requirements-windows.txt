@@ -1,0 +1,5 @@
+# Opcionais, mas recomendados no Windows
+pywin32>=306        # converte Word/Excel/PowerPoint com o proprio Office (e abre .msg do Outlook)
+tkinterdnd2>=0.3    # arrastar e soltar arquivos na janela
+pypdfium2>=4.30     # miniaturas na pre-visualizacao (PDF, Office, imagens, texto)
+pillow>=10.0        # idem
