@@ -9,7 +9,7 @@ rem ============================================================================
 
 set "REPO_USER=aajunior43"
 set "REPO_NAME=1"
-set "PROJ=projetos\print-batch"
+set "PROJ=print-conductor\print-batch"
 rem Ramos tentados em ordem (depois do merge do Pull Request, main passa a funcionar)
 set "BRANCHES=main ccr-d29b596d-8x3y7z"
 set "PY_URL=https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe"
