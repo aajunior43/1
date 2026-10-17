@@ -115,6 +115,7 @@ set "ADDBIN="
 if defined SUMATRA set ADDBIN=--add-binary "%SUMATRA%;."
 "%VPY%" -m PyInstaller --noconfirm --clean --onefile --noconsole --name PrintBatch ^
   --distpath "%WORK%\dist" --workpath "%WORK%\pybuild" --specpath "%WORK%" ^
+  --icon "%SRC%\printbatch\assets\icon.ico" --add-data "%SRC%\printbatch\assets;printbatch\assets" ^
   --collect-all tkinterdnd2 --collect-all pypdfium2 ^
   --hidden-import win32com.client --hidden-import pythoncom --hidden-import win32timezone ^
   %ADDBIN% batch_print.py

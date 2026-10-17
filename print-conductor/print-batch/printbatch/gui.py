@@ -28,6 +28,7 @@ ITEM_COLOR = {"(padrão)": None, "Colorido": "color", "Preto e branco": "mono"}
 SORT_LABELS = {"Natural (doc2 < doc10)": "natural", "Nome": "name", "Data": "date", "Tamanho": "size",
                "Tipo": "type", "Pasta": "folder", "Nº de páginas": "pages"}
 PAPERS = ["", "A4", "A3", "A5", "Letter", "Legal"]
+COL_SORT = {"nome": "natural", "tipo": "type", "pags": "pages", "tam": "size", "pasta": "folder"}
 COLS = ("on", "n", "nome", "tipo", "pags", "copias", "fv", "sel", "tam", "pasta", "estado", "nota")
 HEAD = {"on": "✔", "n": "#", "nome": "Nome", "tipo": "Tipo", "pags": "Págs", "copias": "Cópias", "fv": "F/V",
         "sel": "Intervalo", "tam": "Tamanho", "pasta": "Pasta", "estado": "Estado", "nota": "Nota"}
@@ -136,6 +137,8 @@ class App:
         self.cfg = core.load_config()
         self.mode = self.cfg.get("theme", "light")
         self.pal = theme.apply(root, self.mode)
+        self.set_icon()
+        self.sort_col, self.sort_rev = None, False
         self.backend = get_backend(False)
         self.drag = None
         self.build()
@@ -150,7 +153,11 @@ class App:
             self.add_paths(initial)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.report_callback_exception = self.on_callback_error
+        self.restore_geometry()
         root.after(100, self.poll)
+        root.after(60000, self.autosave_loop)
+        if not project and not initial:
+            root.after(400, self.offer_restore)
 
     # ================= construção =================
     def build(self):
@@ -232,7 +239,7 @@ class App:
         frame.pack(fill="both", expand=True, pady=4)
         self.tree = ttk.Treeview(frame, columns=COLS, show="headings", selectmode="extended")
         for c in COLS:
-            self.tree.heading(c, text=HEAD[c])
+            self.tree.heading(c, text=HEAD[c], command=(lambda c=c: self.sort_by_column(c)) if c in COL_SORT else "")
             self.tree.column(c, width=WIDTH[c], anchor="center" if c in ("on", "n", "tipo", "pags", "copias", "fv", "sel") else "w",
                              stretch=c in ("nome", "pasta", "nota"))
         ys = ttk.Scrollbar(frame, command=self.tree.yview)
@@ -296,6 +303,7 @@ class App:
         ttk.Button(box, text="↻", width=3, command=self.load_printers).grid(row=1, column=2, **rpad)
         self.copies = tk.IntVar(value=1)
         self.set_copies = tk.IntVar(value=1)
+        self.retries = tk.IntVar(value=1)
         self.duplex = tk.StringVar(value="Desligado")
         self.color = tk.StringVar(value="Padrão da impressora")
         self.paper = tk.StringVar()
@@ -303,6 +311,7 @@ class App:
         self.landscape, self.fit = tk.BooleanVar(), tk.BooleanVar()
         grid = (("Cópias de cada arquivo", ttk.Spinbox(box, from_=1, to=999, textvariable=self.copies, width=6)),
                 ("Repetir a fila inteira", ttk.Spinbox(box, from_=1, to=99, textvariable=self.set_copies, width=6)),
+                ("Tentar de novo se falhar", ttk.Spinbox(box, from_=0, to=10, textvariable=self.retries, width=6)),
                 ("Frente e verso", ttk.Combobox(box, textvariable=self.duplex, values=list(DUPLEX), state="readonly", width=14)),
                 ("Cor", ttk.Combobox(box, textvariable=self.color, values=list(COLOR), state="readonly", width=18)),
                 ("Papel", ttk.Combobox(box, textvariable=self.paper, values=PAPERS, width=8)),
@@ -310,8 +319,8 @@ class App:
         for r, (label, w) in enumerate(grid, start=2):
             ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", **rpad)
             w.grid(row=r, column=1, columnspan=2, sticky="w", **rpad)
-        ttk.Checkbutton(box, text="Paisagem", variable=self.landscape).grid(row=8, column=0, sticky="w", **rpad)
-        ttk.Checkbutton(box, text="Ajustar à página", variable=self.fit).grid(row=8, column=1, columnspan=2, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Paisagem", variable=self.landscape).grid(row=9, column=0, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Ajustar à página", variable=self.fit).grid(row=9, column=1, columnspan=2, sticky="w", **rpad)
 
         ext = ttk.LabelFrame(right, text="Separadores e extras")
         ext.pack(fill="x", **rpad)
@@ -356,12 +365,80 @@ class App:
         theme.style_menu(mm, self.pal)
         for text, cmd in (("Abrir projeto…", self.open_project_dialog), ("Salvar projeto…", self.save_project),
                           ("Salvar relatório…", self.save_report), (None, None),
+                          ("Reimprimir só as falhas", self.retry_failed), ("Abrir histórico de impressões", self.open_history), (None, None),
                           ("Diagnóstico…", self.show_diagnostico), ("Abrir pasta de logs", lambda: open_path(core.config_dir()))):
             mm.add_separator() if text is None else mm.add_command(label=text, command=cmd)
         more["menu"] = mm
         more.pack(side="left", fill="x", expand=True, padx=(3, 0))
         self.more_menu = mm
         self.toggle_cover()
+
+    # ================= ícone, janela e sessão =================
+    def set_icon(self):
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)) / "printbatch" / "assets"
+        try:
+            self._icon = tk.PhotoImage(file=str(base / "icon.png"))
+            self.root.iconphoto(True, self._icon)
+        except Exception:
+            pass
+
+    def restore_geometry(self):
+        g = self.cfg.get("geometry")
+        if isinstance(g, str):
+            import re
+            m = re.fullmatch(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", g)
+            if m:
+                w, h, x, y = map(int, m.groups())
+                sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+                if 600 <= w <= sw and 400 <= h <= sh and -50 <= x < sw - 100 and -10 <= y < sh - 100:
+                    self.root.geometry(g)
+        for c, w in (self.cfg.get("col_widths") or {}).items():
+            if c in COLS and isinstance(w, int) and 20 <= w <= 800:
+                self.tree.column(c, width=w)
+
+    SESSION_FILE = "fila-anterior.pbq"
+
+    def autosave(self):
+        if len(self.q):
+            try:
+                self.q.save(core.config_dir() / self.SESSION_FILE, self.options(validate=False))
+            except Exception:
+                pass
+
+    def autosave_loop(self):
+        self.autosave()
+        self.root.after(60000, self.autosave_loop)
+
+    def offer_restore(self):
+        f = core.config_dir() / self.SESSION_FILE
+        if len(self.q) or not f.exists():
+            return
+        try:
+            old, _ = PrintQueue.load(f)
+        except Exception:
+            return
+        if not len(old):
+            return
+        if messagebox.askyesno("PrintBatch", f"Restaurar a fila da última sessão ({len(old)} arquivo(s))?"):
+            self.open_project(str(f))
+
+    def retry_failed(self):
+        failed = {r["arquivo"] for r in self.rows if r["status"] == "falhou"}
+        if not failed:
+            messagebox.showinfo("PrintBatch", "Não há falhas no último lote.")
+            return
+        self.q.snapshot()
+        for it in self.q.items:
+            it.enabled = str(it.path) in failed
+        self.refresh()
+        self.start()
+
+    def open_history(self):
+        f = core.config_dir() / "historico.csv"
+        if f.exists():
+            open_path(f)
+        else:
+            messagebox.showinfo("PrintBatch", "Ainda não há histórico: ele é criado depois da primeira impressão.")
 
     # ================= erros e diagnóstico =================
     def on_callback_error(self, kind, value, tb):
@@ -410,6 +487,19 @@ class App:
 
         threading.Thread(target=work, daemon=True).start()
         win.after(300, poll)
+
+    def sort_by_column(self, col):
+        """Clique no cabeçalho ordena; novo clique na mesma coluna inverte."""
+        key = COL_SORT.get(col)
+        if not key:
+            return
+        self.sort_rev = (not self.sort_rev) if self.sort_col == col else False
+        self.sort_col = col
+        self.q.sort(key, self.sort_rev)
+        for c in COLS:
+            arrow = (" ▼" if self.sort_rev else " ▲") if c == col else ""
+            self.tree.heading(c, text=HEAD[c] + arrow)
+        self.refresh()
 
     # ================= aparência =================
     def style_tags(self):
@@ -840,7 +930,7 @@ class App:
             self.printer.set(default or (names[0] if names else ""))
 
     def get_state(self):
-        return {"printer": self.printer.get(), "copies": self.copies.get(), "set_copies": self.set_copies.get(),
+        return {"printer": self.printer.get(), "copies": self.copies.get(), "set_copies": self.set_copies.get(), "retries": self.retries.get(),
                 "duplex": self.duplex.get(), "color": self.color.get(), "paper": self.paper.get(),
                 "landscape": self.landscape.get(), "fit": self.fit.get(), "cover": self.cover.get(),
                 "divider": self.divider.get(), "failed": self.failed.get(), "attach": self.attach.get(),
@@ -851,6 +941,7 @@ class App:
             self.printer.set(c["printer"])
         self.copies.set(c.get("copies", 1))
         self.set_copies.set(c.get("set_copies", 1))
+        self.retries.set(c.get("retries", 1))
         self.duplex.set(c.get("duplex", "Desligado") if c.get("duplex") in DUPLEX else "Desligado")
         self.color.set(c.get("color", "Padrão da impressora") if c.get("color") in COLOR else "Padrão da impressora")
         self.paper.set(c.get("paper", ""))
@@ -894,9 +985,9 @@ class App:
         cv = COVER_NAMES[self.cover.get()]
         text = self.cover_text.get("1.0", "end").strip() if cv == "custom" else None
 
-        def num(var, default=1):
+        def num(var, default=1, low=1, high=9999):
             try:
-                return max(1, int(var.get()))
+                return min(high, max(low, int(var.get())))
             except (tk.TclError, ValueError):
                 return default
 
@@ -906,7 +997,7 @@ class App:
             paper=self.paper.get().strip() or None, landscape=self.landscape.get(), fit=self.fit.get(),
             color=COLOR[self.color.get()], cover=None if cv == "custom" else cv, cover_text=text,
             failed_page=self.failed.get(), attachments=self.attach.get(), dry_run=self.dry.get(),
-            folder_divider=self.divider.get())
+            folder_divider=self.divider.get(), retries=num(self.retries, 1, 0, 10))
         if validate:
             o.validate()
         return o
@@ -948,6 +1039,8 @@ class App:
         def work():
             try:
                 self.rows = core.run_job(items, opts, backend, lambda kind, **k: self.events.put((kind, k)), self.cancel)
+                if not opts.dry_run:
+                    core.append_history(self.rows, opts.printer)
             except Exception as e:
                 self.events.put(("fatal", str(e)))
 
@@ -963,6 +1056,9 @@ class App:
                     self.log(data)
                 elif kind == "preview":
                     self.on_preview(data)
+                elif kind == "retry":
+                    self.mark(data["file"], f"tentando de novo ({data['attempt']})…")
+                    self.log(f"Falhou ao enviar {Path(data['file']).name}: {data['error']} — nova tentativa")
                 elif kind == "start":
                     self.mark(data["file"], "imprimindo…")
                 elif kind == "ok":
@@ -1061,7 +1157,13 @@ class App:
                 return
             self.cancel.set()
         self.cfg.update(self.get_state())
+        try:
+            self.cfg["geometry"] = self.root.winfo_geometry()
+            self.cfg["col_widths"] = {c: int(self.tree.column(c, "width")) for c in COLS}
+        except tk.TclError:
+            pass
         core.save_config(self.cfg)
+        self.autosave()
         self.root.destroy()
 
 

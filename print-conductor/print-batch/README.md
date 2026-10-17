@@ -40,6 +40,15 @@ linhas alternadas, cores de estado (✔ verde, ✘ vermelho, aviso âmbar) e tex
 - Impressão: impressora, cópias, frente e verso (borda longa/curta), cor ou P&B, papel, paisagem,
   ajustar à página, intervalo de páginas; e-mails `.eml`/`.msg` com anexos opcionais.
 
+## Mais conforto no dia a dia
+- **Ordenar clicando no cabeçalho** (Nome, Tipo, Págs, Tamanho, Pasta); novo clique inverte, com ▲/▼.
+- **Tentar de novo se falhar** (0 a 10, padrão 1): repete só o envio que falhou — nada sai em duplicidade —
+  e avisa na lista (`--retries N` na linha de comando). **Mais ▾ > Reimprimir só as falhas** marca só os que falharam e imprime.
+- **Histórico** de tudo o que foi impresso em `%APPDATA%\PrintBatch\historico.csv` (Mais ▾ > Abrir histórico de impressões).
+- **Recupera a fila** da última sessão ao abrir (salva sozinha a cada minuto e ao fechar) e **lembra** o tamanho/posição
+  da janela e a largura das colunas.
+- **Ícone** próprio no programa, na janela e no `.exe`.
+
 ## Compatibilidade com o Windows e diagnóstico
 - **Diagnóstico**: `DIAGNOSTICO.bat` (ou **Mais ▾ > Diagnóstico…** na janela, ou `--diagnostico`) testa as impressoras,
   o SumatraPDF, Word/Excel/PowerPoint/Outlook, o pywin32, o LibreOffice, a conversão real de um `.docx` e a pré-visualização,
@@ -103,5 +112,5 @@ Funciona via CUPS (`lp`); Office converte com LibreOffice. A GUI precisa de `pyt
 
 ## Testes
 ```
-python -m unittest discover -s tests   # 46 testes
+python -m unittest discover -s tests   # 59 testes
 ```

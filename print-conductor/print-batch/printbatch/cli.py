@@ -49,6 +49,7 @@ def build_parser():
     ap.add_argument("--cover-text", help="modelo próprio de rosto; campos: {name} {folder} {folder_path} {ext} {index} {total} {date}")
     ap.add_argument("--failed-page", action="store_true", help="imprime aviso quando um arquivo falha")
     ap.add_argument("--attachments", action="store_true", help="imprime também os anexos de e-mails .eml")
+    ap.add_argument("--retries", type=int, default=0, metavar="N", help="tentativas extras se o envio à impressora falhar (0 a 10)")
     ap.add_argument("--folder-divider", action="store_true", help="página separadora quando muda a pasta")
     ap.add_argument("--set-copies", type=int, default=1, help="imprime a fila inteira N vezes (conjuntos)")
     ap.add_argument("--project", metavar="ARQ", help="carrega fila e opções de um projeto .pbq")
@@ -110,7 +111,7 @@ def main(argv=None):
     opts = core.Options(printer=a.printer, copies=a.copies, duplex=a.duplex, pages=a.pages, paper=a.paper,
                         landscape=a.landscape, fit=a.fit, color=a.color, cover=a.cover, cover_text=a.cover_text,
                         failed_page=a.failed_page, attachments=a.attachments, dry_run=a.dry_run,
-                        folder_divider=a.folder_divider, set_copies=a.set_copies)
+                        folder_divider=a.folder_divider, set_copies=a.set_copies, retries=a.retries)
     warn = lambda m: print("aviso:", m, file=sys.stderr)
     q = jobqueue.PrintQueue()
     if a.project:
@@ -157,12 +158,16 @@ def main(argv=None):
     def on_event(kind, **k):
         if kind == "start":
             print(f"[{k['index']}/{k['total']}] {k['file']}")
+        elif kind == "retry":
+            print(f"   tentando de novo ({k['attempt']}): {k['error']}", file=sys.stderr)
         elif kind == "error":
             print("   FALHOU:", k["error"], file=sys.stderr)
         elif kind == "ok" and not a.dry_run:
             print("   OK")
 
     rows = core.run_job(items, opts, backend, on_event)
+    if not a.dry_run:
+        core.append_history(rows, opts.printer)
     if a.report:
         core.write_report(a.report, rows)
         print("relatório:", a.report)

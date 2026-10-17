@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -51,6 +52,8 @@ class Options:
     dry_run: bool = False
     folder_divider: bool = False      # página separadora quando muda a pasta
     set_copies: int = 1               # quantas vezes imprimir a fila inteira
+    retries: int = 0                  # tentativas extras se o envio à impressora falhar
+    retry_wait: float = 2.0           # segundos entre tentativas
 
     def validate(self):
         if self.copies < 1:
@@ -61,6 +64,8 @@ class Options:
             raise ValueError("duplex inválido")
         if self.set_copies < 1:
             raise ValueError("cópias do conjunto deve ser >= 1")
+        if not 0 <= self.retries <= 10:
+            raise ValueError("tentativas extras deve estar entre 0 e 10")
 
 
 # ---------- Fila ----------
@@ -391,6 +396,20 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
     n = 0
     stop = False
     last_folder = None
+    def send(path, o, title, name, n, total):
+        """Envia à impressora repetindo só este envio se falhar (assim nada é impresso em duplicidade)."""
+        for attempt in range(opts.retries + 1):
+            try:
+                return backend.print_file(path, o, title) or ""
+            except Exception as e:
+                if attempt >= opts.retries or (cancel is not None and cancel.is_set()):
+                    raise
+                emit("retry", index=n, total=total, file=name, attempt=attempt + 1, error=str(e))
+                if cancel is not None:
+                    cancel.wait(opts.retry_wait)
+                else:
+                    time.sleep(opts.retry_wait)
+
     tmp = tempfile.mkdtemp(prefix="printbatch_")
     try:
         for rep in range(opts.set_copies):
@@ -413,13 +432,13 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
                     if opts.folder_divider and f.parent != last_folder:
                         div = pdfgen.centered_page_pdf(
                             work / "_pasta.pdf", ["PASTA", f.parent.resolve().name or "/", str(f.parent.resolve())])
-                        backend.print_file(div, plain, "separador de pasta")
+                        send(div, plain, "separador de pasta", f, n, total)
                     last_folder = f.parent
                     parts = [f] if opts.dry_run and f.suffix.lower() in OFFICE else prepare(f, work, eff)
                     if opts.cover or opts.cover_text:
                         cov = pdfgen.centered_page_pdf(work / "_rosto.pdf", cover_lines(opts, f, n, total))
-                        backend.print_file(cov, plain, f"rosto {f.name}")
-                    detail = [backend.print_file(p, eff, f.name) or "" for p in parts]
+                        send(cov, plain, f"rosto {f.name}", f, n, total)
+                    detail = [send(p, eff, f.name, f, n, total) for p in parts]
                     ok += 1
                     rows.append({"arquivo": str(f), "status": "ok", "detalhe": "; ".join(d for d in detail if d), "hora": now()})
                     emit("ok", index=n, total=total, file=f)
@@ -431,7 +450,7 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
                         try:
                             pg = pdfgen.centered_page_pdf(Path(tmp) / f"_falha_{n}.pdf",
                                                           ["ARQUIVO NÃO IMPRESSO", f.name, "Motivo: " + str(e)[:160]])
-                            backend.print_file(pg, plain, "aviso de falha")
+                            send(pg, plain, "aviso de falha", f, n, total)
                         except Exception as e2:
                             emit("error", index=n, total=total, file=f, error="aviso de falha também falhou: " + str(e2))
             if stop:
@@ -451,6 +470,27 @@ def write_report(path, rows):
             w = csv.DictWriter(fh, fieldnames=["arquivo", "status", "detalhe", "hora"], delimiter=";")
             w.writeheader()
             w.writerows(rows)
+
+
+HISTORY_FIELDS = ["arquivo", "status", "detalhe", "hora"]
+
+
+def append_history(rows, printer=None):
+    """Acrescenta o resultado de um lote ao histórico (historico.csv na pasta de configuração)."""
+    if not rows:
+        return None
+    path = config_dir() / "historico.csv"
+    new = not path.exists()
+    try:
+        with open(path, "a", newline="", encoding="utf-8-sig" if new else "utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=HISTORY_FIELDS + ["impressora"], delimiter=";")
+            if new:
+                w.writeheader()
+            for r in rows:
+                w.writerow({**r, "impressora": printer or ""})
+        return path
+    except OSError:
+        return None
 
 
 # ---------- Configuração e registro de erros ----------
