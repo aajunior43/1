@@ -95,6 +95,11 @@ class Item:
                                   ("duplex", self.duplex), ("color", self.color)) if v}
 
 
+def norm_key(path):
+    """Chave para comparar caminhos (no Windows maiúsculas/minúsculas e / \\ são equivalentes)."""
+    return os.path.normcase(str(Path(path).resolve()))
+
+
 def natural_key(text):
     import re
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(text))]
@@ -113,7 +118,7 @@ def collect(paths, recursive=False, patterns=None, sort="natural", reverse=False
             warn(f"não encontrado: {raw}")
     seen, uniq = set(), []
     for f in files:
-        k = str(f.resolve())
+        k = norm_key(f)
         if k not in seen:
             seen.add(k)
             uniq.append(f)
@@ -187,8 +192,8 @@ def office_via_libreoffice(src, outdir):
     return out
 
 
-def office_via_com(src, outdir):
-    """Word/Excel/PowerPoint instalados (Windows + pywin32)."""
+def office_via_com_inprocess(src, outdir):
+    """Word/Excel/PowerPoint instalados (Windows + pywin32). Roda dentro do processo filho."""
     import pythoncom  # noqa
     import win32com.client as wc
     src = Path(src).resolve()
@@ -199,6 +204,8 @@ def office_via_com(src, outdir):
         if ext in {".doc", ".docx", ".odt", ".rtf", ".html", ".htm"}:
             app = wc.DispatchEx("Word.Application")
             app.Visible = False
+            app.DisplayAlerts = 0          # sem caixas de diálogo
+            app.AutomationSecurity = 3     # macros desativadas
             try:
                 doc = app.Documents.Open(str(src), ReadOnly=True, AddToRecentFiles=False)
                 doc.ExportAsFixedFormat(str(out), 17)
@@ -209,6 +216,7 @@ def office_via_com(src, outdir):
             app = wc.DispatchEx("Excel.Application")
             app.Visible = False
             app.DisplayAlerts = False
+            app.AutomationSecurity = 3
             try:
                 wb = app.Workbooks.Open(str(src), ReadOnly=True)
                 wb.ExportAsFixedFormat(0, str(out))
@@ -218,6 +226,7 @@ def office_via_com(src, outdir):
         elif ext in {".ppt", ".pptx", ".odp"}:
             app = wc.DispatchEx("PowerPoint.Application")
             try:
+                app.DisplayAlerts = 1      # sem caixas de diálogo
                 pres = app.Presentations.Open(str(src), ReadOnly=True, WithWindow=False)
                 pres.SaveAs(str(out), 32)
                 pres.Close()
@@ -230,6 +239,45 @@ def office_via_com(src, outdir):
     if not out.exists():
         raise RuntimeError("o Office não gerou o PDF")
     return out
+
+
+OFFICE_TIMEOUT = 240
+
+
+def child_command(args):
+    """Comando para chamar este mesmo programa em outro processo (funciona no .exe e no Python)."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable] + list(args), None
+    return [sys.executable, "-m", "printbatch"] + list(args), str(Path(__file__).resolve().parent.parent)
+
+
+def run_with_timeout(cmd, timeout, cwd=None):
+    """Roda `cmd`; se passar do tempo, mata o processo (e a árvore, no Windows). Devolve (rc, saída, erro)."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd,
+                            creationflags=NO_WINDOW)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return proc.returncode, out, err
+    except subprocess.TimeoutExpired:
+        if IS_WINDOWS:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, creationflags=NO_WINDOW)
+        else:
+            proc.kill()
+        proc.communicate()
+        raise TimeoutError(f"sem resposta em {timeout} s")
+
+
+def office_via_com(src, outdir, timeout=None):
+    """Converte com o Office num processo separado, com limite de tempo (evita travar se o Office abrir um diálogo)."""
+    cmd, cwd = child_command(["--_office-convert", str(src), str(outdir)])
+    try:
+        rc, out, err = run_with_timeout(cmd, timeout or OFFICE_TIMEOUT, cwd)
+    except TimeoutError:
+        raise RuntimeError(f"o Office não respondeu em {timeout or OFFICE_TIMEOUT} s (documento protegido ou com diálogo aberto?)")
+    out_pdf = Path(outdir) / (Path(src).stem + ".pdf")
+    if rc != 0 or not out_pdf.exists():
+        raise RuntimeError((err or out or "falha na conversão pelo Office").strip().splitlines()[-1][:300])
+    return out_pdf
 
 
 def office_to_pdf(src, outdir):
@@ -343,7 +391,8 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
     n = 0
     stop = False
     last_folder = None
-    with tempfile.TemporaryDirectory(prefix="printbatch_") as tmp:
+    tmp = tempfile.mkdtemp(prefix="printbatch_")
+    try:
         for rep in range(opts.set_copies):
             last_folder = None
             for it in active:
@@ -387,6 +436,8 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
                             emit("error", index=n, total=total, file=f, error="aviso de falha também falhou: " + str(e2))
             if stop:
                 break
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     emit("done", ok=ok, fail=fail, total=total)
     return rows
 
@@ -402,7 +453,17 @@ def write_report(path, rows):
             w.writerows(rows)
 
 
-# ---------- Configuração ----------
+# ---------- Configuração e registro de erros ----------
+def log_error(text):
+    """Acrescenta uma mensagem ao arquivo de erros (útil no .exe, que não tem console)."""
+    try:
+        with open(config_dir() / "erros.log", "a", encoding="utf-8") as fh:
+            fh.write(f"[{datetime.datetime.now().isoformat(timespec='seconds')}] {text}\n")
+    except OSError:
+        pass
+
+
+
 def config_dir():
     base = os.environ.get("APPDATA") if IS_WINDOWS else os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
     d = Path(base or Path.home()) / "PrintBatch"

@@ -51,8 +51,8 @@ class PrintQueue:
 
     def add_paths(self, paths, recursive=False, patterns=None, sort="natural", warn=None) -> List[Item]:
         new = core.collect(paths, recursive, patterns, sort, False, warn)
-        have = {str(i.path.resolve()) for i in self.items}
-        added = [Item(f) for f in new if str(f.resolve()) not in have]
+        have = {core.norm_key(i.path) for i in self.items}
+        added = [Item(f) for f in new if core.norm_key(f) not in have]
         if added:
             self.snapshot()
             self.items += added

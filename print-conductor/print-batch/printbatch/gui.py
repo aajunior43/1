@@ -149,6 +149,7 @@ class App:
         if initial:
             self.add_paths(initial)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+        root.report_callback_exception = self.on_callback_error
         root.after(100, self.poll)
 
     # ================= construção =================
@@ -354,12 +355,61 @@ class App:
         mm = tk.Menu(more, tearoff=0)
         theme.style_menu(mm, self.pal)
         for text, cmd in (("Abrir projeto…", self.open_project_dialog), ("Salvar projeto…", self.save_project),
-                          ("Salvar relatório…", self.save_report)):
-            mm.add_command(label=text, command=cmd)
+                          ("Salvar relatório…", self.save_report), (None, None),
+                          ("Diagnóstico…", self.show_diagnostico), ("Abrir pasta de logs", lambda: open_path(core.config_dir()))):
+            mm.add_separator() if text is None else mm.add_command(label=text, command=cmd)
         more["menu"] = mm
         more.pack(side="left", fill="x", expand=True, padx=(3, 0))
         self.more_menu = mm
         self.toggle_cover()
+
+    # ================= erros e diagnóstico =================
+    def on_callback_error(self, kind, value, tb):
+        import traceback
+        text = "".join(traceback.format_exception(kind, value, tb))
+        core.log_error(text)
+        self.log("ERRO inesperado: " + str(value) + "  (detalhes em erros.log)")
+
+    def show_diagnostico(self):
+        win = tk.Toplevel(self.root)
+        win.configure(background=self.pal["bg"])
+        win.title("Diagnóstico")
+        win.geometry("860x560")
+        win.transient(self.root)
+        box = tk.Text(win, wrap="word")
+        theme.style_text(box, self.pal)
+        box.insert("1.0", "Testando o seu sistema… (a conversão de documentos pode levar alguns segundos)")
+        box.config(state="disabled")
+        box.pack(fill="both", expand=True, padx=8, pady=8)
+        bar = ttk.Frame(win)
+        bar.pack(fill="x", padx=8, pady=(0, 8))
+
+        def copy():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(box.get("1.0", "end").strip())
+            self.log("Relatório de diagnóstico copiado")
+
+        ttk.Button(bar, text="Copiar relatório", command=copy).pack(side="left")
+        ttk.Button(bar, text="Fechar", command=win.destroy).pack(side="right")
+        printers = self.printer_cb["values"]
+        pr = self.printer.get()
+        res = {}
+
+        def work():
+            from . import diagnostico
+            res["text"] = diagnostico.format_report(diagnostico.run(full=True))
+
+        def poll():
+            if "text" in res:
+                box.config(state="normal")
+                box.delete("1.0", "end")
+                box.insert("1.0", res["text"])
+                box.config(state="disabled")
+            else:
+                win.after(300, poll)
+
+        threading.Thread(target=work, daemon=True).start()
+        win.after(300, poll)
 
     # ================= aparência =================
     def style_tags(self):

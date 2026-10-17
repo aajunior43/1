@@ -40,6 +40,20 @@ linhas alternadas, cores de estado (✔ verde, ✘ vermelho, aviso âmbar) e tex
 - Impressão: impressora, cópias, frente e verso (borda longa/curta), cor ou P&B, papel, paisagem,
   ajustar à página, intervalo de páginas; e-mails `.eml`/`.msg` com anexos opcionais.
 
+## Compatibilidade com o Windows e diagnóstico
+- **Diagnóstico**: `DIAGNOSTICO.bat` (ou **Mais ▾ > Diagnóstico…** na janela, ou `--diagnostico`) testa as impressoras,
+  o SumatraPDF, Word/Excel/PowerPoint/Outlook, o pywin32, o LibreOffice, a conversão real de um `.docx` e a pré-visualização,
+  e grava `diagnostico.txt`. Para imprimir também uma página de teste: `DIAGNOSTICO.bat "Nome da Impressora"`.
+  O relatório não inclui nomes de arquivos nem o conteúdo dos documentos — é só colar para pedir ajuda.
+- **Office sem travar**: a conversão pelo Word/Excel/PowerPoint roda em processo separado, sem diálogos nem macros e com
+  limite de 240 s; se o Office não responder, o arquivo é marcado como falha e o lote continua.
+- **Enviar para**: `criar_atalho_enviar_para.bat` cria o atalho; os arquivos escolhidos abrem o PrintBatch já na fila (nada é
+  impresso sozinho).
+- **Sem console (.exe)**: saída em UTF-8 e erros inesperados gravados em `%APPDATA%\PrintBatch\erros.log`
+  (**Mais ▾ > Abrir pasta de logs**).
+- Nomes de arquivos com espaços, acentos e parênteses; caminhos comparados sem diferenciar maiúsculas; a pasta temporária é
+  limpa mesmo que o Windows ainda esteja com o arquivo aberto; código compatível com Python 3.9 ou superior.
+
 ## Gerar o executável (o jeito mais fácil)
 Copie **só o arquivo `GERAR_EXE.bat`** para o PC Windows (qualquer pasta) e dê duplo clique. Ele faz tudo sozinho:
 1. instala o **Python 3.12** se não houver (winget ou instalador do python.org), sem precisar de administrador;
@@ -89,5 +103,5 @@ Funciona via CUPS (`lp`); Office converte com LibreOffice. A GUI precisa de `pyt
 
 ## Testes
 ```
-python -m unittest discover -s tests
+python -m unittest discover -s tests   # 46 testes
 ```

@@ -4,6 +4,20 @@ import sys
 from dataclasses import replace
 
 from . import __version__, core, jobqueue
+
+
+def setup_streams():
+    """Garante saída em UTF-8 e evita erro quando o .exe não tem console (stdout/stderr = None)."""
+    import io, os
+    for name in ("stdout", "stderr"):
+        st = getattr(sys, name)
+        if st is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+        else:
+            try:
+                st.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError, io.UnsupportedOperation):
+                pass
 from .backends import get_backend
 
 DOC = """PrintBatch: imprime vários documentos de uma vez (PDF, Office, imagens, texto, e-mail).
@@ -47,13 +61,37 @@ def build_parser():
     ap.add_argument("--dry-run", action="store_true", help="simula sem imprimir")
     ap.add_argument("--list-printers", action="store_true")
     ap.add_argument("--gui", action="store_true", help="abre a interface gráfica")
+    ap.add_argument("--diagnostico", action="store_true", help="testa cada peça (impressoras, SumatraPDF, Office, conversão…) e gera um relatório")
+    ap.add_argument("--rapido", action="store_true", help="com --diagnostico: pula o teste de conversão de documentos")
+    ap.add_argument("--imprimir-teste", metavar="IMPRESSORA", help="com --diagnostico: imprime UMA página de teste na impressora")
+    ap.add_argument("--_office-convert", nargs=2, metavar=("ARQ", "PASTA"), help=argparse.SUPPRESS)
     ap.add_argument("--version", action="version", version="PrintBatch " + __version__)
     return ap
 
 
 def main(argv=None):
+    setup_streams()
     ap = build_parser()
     a = ap.parse_args(argv)
+    if a._office_convert:                       # processo filho: converte um documento com o Office
+        try:
+            print(core.office_via_com_inprocess(*a._office_convert))
+            return 0
+        except Exception as e:
+            print(f"{type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+    if a.diagnostico:
+        from . import diagnostico
+        text = diagnostico.format_report(diagnostico.run(full=not a.rapido, printer=a.imprimir_teste))
+        print(text)
+        try:
+            from pathlib import Path
+            out = Path.cwd() / "diagnostico.txt"
+            out.write_text(text, encoding="utf-8")
+            print(f"\nRelatório salvo em: {out}")
+        except OSError:
+            pass
+        return 1 if "[FALHA]" in text else 0
     if a.gui or (not a.paths and not a.project and not a.list_printers):
         try:
             from .gui import run_gui
