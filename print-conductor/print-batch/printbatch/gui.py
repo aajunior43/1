@@ -5,11 +5,13 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import __version__, core, fileinfo, preview as pv, theme
+from .watcher import FolderWatcher
 from .backends import get_backend
 from .jobqueue import PrintQueue
 
@@ -25,7 +27,7 @@ COVER_NAMES = {"Sem página de rosto": None, "Nome do arquivo": "filename", "Nom
                "Completa": "full", "Número na fila": "number", "Personalizada…": "custom"}
 ITEM_DUPLEX = {"(padrão)": None, "Desligado": "off", "Borda longa": "long", "Borda curta": "short"}
 ITEM_COLOR = {"(padrão)": None, "Colorido": "color", "Preto e branco": "mono"}
-SORT_LABELS = {"Natural (doc2 < doc10)": "natural", "Nome": "name", "Data": "date", "Tamanho": "size",
+SORT_LABELS = {"Natural": "natural", "Nome": "name", "Data": "date", "Tamanho": "size",
                "Tipo": "type", "Pasta": "folder", "Nº de páginas": "pages"}
 PAPERS = ["", "A4", "A3", "A5", "Letter", "Legal"]
 COL_SORT = {"nome": "natural", "tipo": "type", "pags": "pages", "tam": "size", "pasta": "folder"}
@@ -66,6 +68,74 @@ def reveal(path):
             subprocess.Popen(["xdg-open", str(path.parent)])
     except Exception as e:
         messagebox.showerror("PrintBatch", str(e))
+
+
+TIPS = {
+    "＋ Arquivos…": "Adicionar arquivos à fila  (Ctrl+O)",
+    "＋ Pasta…": "Adicionar todos os documentos de uma pasta",
+    "👁 Pré-visualização": "Mostrar ou esconder a miniatura da página",
+    "Remover": "Tirar os selecionados da fila  (Delete)",
+    "Limpar": "Esvaziar a fila (dá para desfazer)",
+    "▲": "Subir os selecionados  (Alt+↑)",
+    "▼": "Descer os selecionados  (Alt+↓)",
+    "↶ Desfazer": "Desfazer a última alteração  (Ctrl+Z)",
+    "↷ Refazer": "Refazer  (Ctrl+Y)",
+    "Aplicar": "Aplicar",
+    "Remover duplicados": "Remove arquivos com conteúdo idêntico, mantendo o primeiro",
+    "Remover desmarcados": "Tira da fila os arquivos desmarcados (☐)",
+    "✓ Verificar fila": "Procura arquivos vazios, protegidos, temporários e duplicados",
+    "Marcar": "Marcar todos para impressão",
+    "Desmarcar": "Desmarcar todos",
+    "Ajustes…": "Cópias, páginas, frente e verso e cor só dos selecionados  (duplo clique)",
+    "Ver plano…": "Mostra a sequência exata do que vai sair e o total de folhas",
+    "Imprimir teste": "Imprime só a 1ª página de cada arquivo, para conferir sem gastar papel",
+    "Cancelar": "Interrompe a impressão depois do arquivo atual",
+    "Mais ▾": "Projetos, relatório, monitorar pasta, histórico, diagnóstico e atalhos",
+    "☾ Escuro": "Trocar para o tema escuro",
+    "☀ Claro": "Trocar para o tema claro",
+}
+
+
+class Tooltip:
+    """Dica que aparece ao parar o mouse sobre um botão."""
+
+    def __init__(self, widget, text, pal):
+        self.w, self.text, self.pal, self.tip, self.job = widget, text, pal, None, None
+        widget.bind("<Enter>", self.schedule, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+
+    def schedule(self, e=None):
+        self.hide()
+        self.job = self.w.after(600, self.show)
+
+    def show(self):
+        if self.tip or not self.w.winfo_exists():
+            return
+        self.tip = tk.Toplevel(self.w)
+        self.tip.wm_overrideredirect(True)
+        x, y = self.w.winfo_rootx() + 10, self.w.winfo_rooty() + self.w.winfo_height() + 6
+        self.tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tip, text=self.text, background=self.pal["text"], foreground=self.pal["card"],
+                 padx=8, pady=4, font=(self.pal["font"], 9)).pack()
+
+    def hide(self, e=None):
+        if self.job:
+            self.w.after_cancel(self.job)
+            self.job = None
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
+SHORTCUTS = (
+    ("Ctrl+O", "Adicionar arquivos"), ("Ctrl+P", "Imprimir os marcados"), ("Ctrl+Z / Ctrl+Y", "Desfazer / refazer"),
+    ("Ctrl+A", "Selecionar tudo na lista"), ("Delete", "Remover os selecionados"), ("Espaço", "Marcar/desmarcar os selecionados"),
+    ("Alt+↑ / Alt+↓", "Mover os selecionados"), ("Duplo clique", "Ajustes do arquivo (cópias, páginas, frente e verso)"),
+    ("Clique em ☑", "Marcar/desmarcar um arquivo"), ("Arrastar linha", "Reordenar a fila"),
+    ("Clique no cabeçalho", "Ordenar pela coluna (de novo inverte)"), ("Botão direito", "Abrir, mostrar na pasta, duplicar, remover"),
+    ("F1", "Esta janela"),
+)
 
 
 class ItemDialog(tk.Toplevel):
@@ -139,6 +209,7 @@ class App:
         self.pal = theme.apply(root, self.mode)
         self.set_icon()
         self.sort_col, self.sort_rev = None, False
+        self.watcher, self.watch_auto, self.watch_job, self.watch_backlog = None, False, None, []
         self.backend = get_backend(False)
         self.drag = None
         self.build()
@@ -154,6 +225,7 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.report_callback_exception = self.on_callback_error
         self.restore_geometry()
+        self.refresh()
         root.after(100, self.poll)
         root.after(60000, self.autosave_loop)
         if not project and not initial:
@@ -171,9 +243,10 @@ class App:
         self.theme_btn.pack(side="right")
         self.summary = ttk.Label(header, text="", style="Chip.TLabel")
         self.summary.pack(side="right", padx=12)
+        self.watch_chip = ttk.Label(header, text="", style="Chip.TLabel")
         main = ttk.PanedWindow(self.root, orient="horizontal")
         main.pack(fill="both", expand=True, padx=10, pady=(4, 10))
-        left, right = ttk.Frame(main), ttk.Frame(main, width=350)
+        left, right = ttk.Frame(main), ttk.Frame(main, width=330)
         self.main, self.mid = main, ttk.Frame(main, width=330)
         main.add(left, weight=1)
         main.add(right, weight=0)
@@ -202,9 +275,9 @@ class App:
         bar2.pack(fill="x", pady=3)
         bar2a = ttk.Frame(bar2)
         bar2a.pack(fill="x")
-        ttk.Label(bar2a, text="Ordenar por").pack(side="left", **pad)
-        self.sort = tk.StringVar(value="Natural (doc2 < doc10)")
-        ttk.Combobox(bar2a, textvariable=self.sort, values=list(SORT_LABELS), width=17, state="readonly").pack(side="left")
+        ttk.Label(bar2a, text="Ordenar").pack(side="left", **pad)
+        self.sort = tk.StringVar(value="Natural")
+        ttk.Combobox(bar2a, textvariable=self.sort, values=list(SORT_LABELS), width=15, state="readonly").pack(side="left")
         self.reverse = tk.BooleanVar()
         ttk.Checkbutton(bar2a, text="inverter", variable=self.reverse).pack(side="left", **pad)
         ttk.Button(bar2a, style="Tool.TButton", text="Aplicar", command=self.apply_sort).pack(side="left", **pad)
@@ -242,6 +315,10 @@ class App:
             self.tree.heading(c, text=HEAD[c], command=(lambda c=c: self.sort_by_column(c)) if c in COL_SORT else "")
             self.tree.column(c, width=WIDTH[c], anchor="center" if c in ("on", "n", "tipo", "pags", "copias", "fv", "sel") else "w",
                              stretch=c in ("nome", "pasta", "nota"))
+        self.empty = ttk.Label(frame, style="Empty.TLabel", justify="center", cursor="hand2",
+                               text="🗂\n\nArraste arquivos ou pastas para cá\nou clique para escolher\n\n"
+                                    "PDF · Word · Excel · PowerPoint · imagens · texto · e-mail")
+        self.empty.bind("<Button-1>", lambda e: self.add_files())
         ys = ttk.Scrollbar(frame, command=self.tree.yview)
         xs = ttk.Scrollbar(frame, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
@@ -278,7 +355,9 @@ class App:
         self.details = ttk.Label(left, text="", style="Muted.TLabel")
         self.details.pack(anchor="w", pady=(2, 0))
         self.progress = ttk.Progressbar(left, mode="determinate")
-        self.progress.pack(fill="x", pady=2)
+        self.progress.pack(fill="x", pady=(4, 0))
+        self.prog_label = ttk.Label(left, text="", style="Muted.TLabel")
+        self.prog_label.pack(anchor="w")
         self.logbox = tk.Text(left, height=7, state="disabled", wrap="word")
         theme.style_text(self.logbox, self.pal)
         self.logbox.pack(fill="x", pady=3)
@@ -366,12 +445,16 @@ class App:
         for text, cmd in (("Abrir projeto…", self.open_project_dialog), ("Salvar projeto…", self.save_project),
                           ("Salvar relatório…", self.save_report), (None, None),
                           ("Reimprimir só as falhas", self.retry_failed), ("Abrir histórico de impressões", self.open_history), (None, None),
+                          ("Monitorar uma pasta…", self.toggle_watch), (None, None),
+                          ("Atalhos de teclado (F1)", self.show_shortcuts),
                           ("Diagnóstico…", self.show_diagnostico), ("Abrir pasta de logs", lambda: open_path(core.config_dir()))):
             mm.add_separator() if text is None else mm.add_command(label=text, command=cmd)
         more["menu"] = mm
         more.pack(side="left", fill="x", expand=True, padx=(3, 0))
         self.more_menu = mm
         self.toggle_cover()
+        self.root.bind("<F1>", lambda e: self.show_shortcuts())
+        self.attach_tips(self.root)
 
     # ================= ícone, janela e sessão =================
     def set_icon(self):
@@ -421,6 +504,77 @@ class App:
             return
         if messagebox.askyesno("PrintBatch", f"Restaurar a fila da última sessão ({len(old)} arquivo(s))?"):
             self.open_project(str(f))
+
+    # ================= monitorar pasta =================
+    def toggle_watch(self):
+        if self.watcher:
+            self.stop_watch()
+            return
+        d = filedialog.askdirectory(title="Pasta a monitorar (arquivos novos entram na fila)")
+        if not d:
+            return
+        auto = messagebox.askyesno("Monitorar pasta", "Imprimir automaticamente os arquivos que chegarem?\n\n"
+                                   "Sim = imprime sozinho com as opções atuais.\nNão = só coloca na fila para você conferir.")
+        self.watcher, self.watch_auto = FolderWatcher(d, recursive=self.recursive.get()), auto
+        self.watch_chip.config(text=f"👁 Monitorando: {Path(d).name or d}" + ("  (imprime sozinho)" if auto else ""))
+        self.watch_chip.pack(side="right", padx=(0, 10))
+        self.log(f"Monitorando {d} — arquivos novos {'serão impressos' if auto else 'entram na fila'}")
+        self.watch_job = self.root.after(3000, self.watch_tick)
+
+    def stop_watch(self):
+        self.watcher = None
+        if self.watch_job:
+            self.root.after_cancel(self.watch_job)
+            self.watch_job = None
+        self.watch_chip.pack_forget()
+        self.log("Monitoramento de pasta desligado")
+
+    def watch_tick(self):
+        self.watch_job = None
+        if not self.watcher:
+            return
+        try:
+            new = self.watcher.scan()
+            if new:
+                added = self.q.add_paths([str(f) for f in new], False, None, "natural", self.log)
+                self.refresh()
+                if added:
+                    self.log(f"{len(added)} arquivo(s) novo(s) na pasta monitorada")
+                    if self.watch_auto:
+                        if self.worker and self.worker.is_alive():
+                            self.watch_backlog += added
+                        else:
+                            self.start(only=added + self.watch_backlog)
+                            self.watch_backlog = []
+            elif self.watch_backlog and not (self.worker and self.worker.is_alive()):
+                self.start(only=self.watch_backlog)
+                self.watch_backlog = []
+        except Exception as e:
+            core.log_error(f"monitoramento: {e}")
+        self.watch_job = self.root.after(3000, self.watch_tick)
+
+    def show_shortcuts(self):
+        win = tk.Toplevel(self.root)
+        win.configure(background=self.pal["bg"])
+        win.title("Atalhos de teclado e dicas")
+        win.transient(self.root)
+        win.resizable(False, False)
+        f = ttk.Frame(win, padding=16)
+        f.pack()
+        ttk.Label(f, text="Atalhos e dicas", style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        for r, (k, d) in enumerate(SHORTCUTS, start=1):
+            ttk.Label(f, text=k, style="Chip.TLabel").grid(row=r, column=0, sticky="w", pady=3, padx=(0, 14))
+            ttk.Label(f, text=d).grid(row=r, column=1, sticky="w", pady=3)
+        ttk.Button(f, text="Fechar", command=win.destroy).grid(row=len(SHORTCUTS) + 1, column=1, sticky="e", pady=(12, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+
+    def attach_tips(self, widget):
+        for w in widget.winfo_children():
+            if isinstance(w, (ttk.Button, ttk.Menubutton)):
+                t = TIPS.get(str(w.cget("text")))
+                if t:
+                    Tooltip(w, t, self.pal)
+            self.attach_tips(w)
 
     def retry_failed(self):
         failed = {r["arquivo"] for r in self.rows if r["status"] == "falhou"}
@@ -703,6 +857,11 @@ class App:
         keep = [str(i) for i in self.visible if id(self.q.items[i]) in sel_items]
         if keep:
             self.tree.selection_set(keep)
+        if len(self.q):
+            self.empty.place_forget()
+        else:
+            self.empty.place(relx=0.5, rely=0.45, anchor="center")
+            self.empty.lift()
         self.update_summary()
         self.show_details()
 
@@ -735,8 +894,7 @@ class App:
         elif sel:
             self.details.config(text=f"{len(sel)} selecionados")
         else:
-            self.details.config(text="Dica: clique em ☑ para marcar/desmarcar, arraste para reordenar, "
-                                     "duplo clique para ajustes do arquivo, botão direito para mais opções.")
+            self.details.config(text="Dica: ☑ marca/desmarca  •  arraste para reordenar  •  duplo clique: ajustes  •  F1: atalhos")
 
     # ================= ações da fila =================
     def add_paths(self, paths):
@@ -891,10 +1049,10 @@ class App:
         win = tk.Toplevel(self.root)
         win.configure(background=self.pal["bg"])
         win.title(f"Verificação: {errs} erro(s), {len(issues) - errs} aviso(s)")
-        win.geometry("760x420")
+        win.geometry("940x420")
         win.transient(self.root)
         t = ttk.Treeview(win, columns=("n", "arq", "msg"), show="headings")
-        for c, h, w in (("n", "Nível", 60), ("arq", "Arquivo", 220), ("msg", "Problema", 440)):
+        for c, h, w in (("n", "Nível", 60), ("arq", "Arquivo", 220), ("msg", "Problema", 620)):
             t.heading(c, text=h)
             t.column(c, width=w, anchor="w")
         for i in issues:
@@ -1003,8 +1161,8 @@ class App:
         return o
 
     # ================= execução =================
-    def start(self, test=False):
-        enabled = [it for it in self.q.items if it.enabled]
+    def start(self, test=False, only=None):
+        enabled = [it for it in self.q.items if it.enabled] if only is None else list(only)
         if not enabled:
             messagebox.showinfo("PrintBatch", "Nenhum arquivo marcado na fila.")
             return "break"
@@ -1014,14 +1172,15 @@ class App:
         except (ValueError, tk.TclError) as e:
             messagebox.showerror("PrintBatch", str(e))
             return "break"
-        items = [core.Item(i.path, i.enabled, i.copies, i.pages, i.duplex, i.color, i.note) for i in self.q.items]
+        src = self.q.items if only is None else only
+        items = [core.Item(i.path, i.enabled, i.copies, i.pages, i.duplex, i.color, i.note) for i in src]
         if test:
             items, opts = core.as_test_job(items, opts)
         tq = PrintQueue()
         tq.items = items
         s = tq.stats(opts)
         what = "IMPRESSÃO DE TESTE (só a 1ª página de cada)\n" if test else ""
-        if not opts.dry_run and not messagebox.askyesno(
+        if only is None and not opts.dry_run and not messagebox.askyesno(
                 "Confirmar impressão",
                 f"{what}Imprimir {s['enabled']} arquivo(s) — {s['pages']} página(s), ≈ {s['sheets']} folha(s) —\n"
                 f"em “{opts.printer or 'impressora padrão'}”?"):
@@ -1032,6 +1191,8 @@ class App:
         self.refresh()
         self.cancel.clear()
         self.progress.config(maximum=s["enabled"] * opts.set_copies, value=0)
+        self.t0, self.done_n, self.total_n = time.time(), 0, s["enabled"] * opts.set_copies
+        self.prog_label.config(text=f"0/{self.total_n} — iniciando…")
         self.btn_print.config(state="disabled")
         self.btn_cancel.config(state="normal")
         backend = get_backend(opts.dry_run, log=lambda *a: self.events.put(("log", " ".join(map(str, a)))))
@@ -1061,13 +1222,18 @@ class App:
                     self.log(f"Falhou ao enviar {Path(data['file']).name}: {data['error']} — nova tentativa")
                 elif kind == "start":
                     self.mark(data["file"], "imprimindo…")
+                    self.update_progress(Path(data["file"]).name)
                 elif kind == "ok":
                     self.mark(data["file"], "✔ ok")
                     self.progress.step(1)
+                    self.done_n += 1
+                    self.update_progress()
                 elif kind == "error":
                     self.mark(data["file"], "✘ falhou")
                     self.log(f"FALHOU {Path(data['file']).name}: {data['error']}")
                     self.progress.step(1)
+                    self.done_n += 1
+                    self.update_progress()
                 elif kind == "cancelled":
                     self.log("Cancelado.")
                 elif kind == "done":
@@ -1090,7 +1256,28 @@ class App:
                 self.tree.see(str(i))
                 break
 
+    @staticmethod
+    def fmt_time(sec):
+        sec = int(max(0, sec))
+        return f"{sec // 60:02d}:{sec % 60:02d}"
+
+    def update_progress(self, current=None):
+        done, total = getattr(self, "done_n", 0), getattr(self, "total_n", 0)
+        if not total:
+            return
+        el = time.time() - self.t0
+        eta = (el / done * (total - done)) if done else None
+        txt = f"{done}/{total} ({100 * done // total}%) · decorrido {self.fmt_time(el)}"
+        if eta is not None and done < total:
+            txt += f" · restam ≈ {self.fmt_time(eta)}"
+        if current:
+            txt += f" · {current}"
+        self.prog_label.config(text=txt)
+
     def finish(self):
+        if getattr(self, "total_n", 0):
+            self.prog_label.config(text=f"Concluído em {self.fmt_time(time.time() - self.t0)} — "
+                                        f"{self.done_n} de {self.total_n} arquivo(s) processado(s)")
         self.btn_print.config(state="normal")
         self.btn_cancel.config(state="disabled")
 
@@ -1164,6 +1351,8 @@ class App:
             pass
         core.save_config(self.cfg)
         self.autosave()
+        if self.watcher:
+            self.stop_watch()
         self.root.destroy()
 
 

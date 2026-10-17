@@ -49,6 +49,13 @@ linhas alternadas, cores de estado (✔ verde, ✘ vermelho, aviso âmbar) e tex
   da janela e a largura das colunas.
 - **Ícone** próprio no programa, na janela e no `.exe`.
 
+## Mais conforto no dia a dia (continuação)
+- **Tela inicial** com dica de arrastar e soltar; **dicas ao passar o mouse** nos botões; **F1** abre os atalhos de teclado.
+- **Progresso** com porcentagem, tempo decorrido, tempo restante estimado e o arquivo atual; resumo ao concluir.
+- **Monitorar uma pasta** (Mais ▾ > Monitorar uma pasta…): arquivos novos que chegam (só depois de terminarem de ser
+  gravados, ignorando temporários) entram na fila — ou são impressos sozinhos, se você escolher.
+- Telas de exemplo em [`docs/telas`](docs/telas).
+
 ## Compatibilidade com o Windows e diagnóstico
 - **Diagnóstico**: `DIAGNOSTICO.bat` (ou **Mais ▾ > Diagnóstico…** na janela, ou `--diagnostico`) testa as impressoras,
   o SumatraPDF, Word/Excel/PowerPoint/Outlook, o pywin32, o LibreOffice, a conversão real de um `.docx` e a pré-visualização,
@@ -112,5 +119,5 @@ Funciona via CUPS (`lp`); Office converte com LibreOffice. A GUI precisa de `pyt
 
 ## Testes
 ```
-python -m unittest discover -s tests   # 59 testes
+python -m unittest discover -s tests   # 73 testes
 ```

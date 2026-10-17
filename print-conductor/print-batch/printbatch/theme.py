@@ -64,6 +64,7 @@ def apply(root, mode="light"):
     st.configure("Subtitle.TLabel", foreground=p["muted"])
     st.configure("Chip.TLabel", background=p["accent_soft"], foreground=p["sel_text"] if mode == "light" else p["text"],
                  padding=(10, 4), font=(fam, 10, "bold"))
+    st.configure("Empty.TLabel", background=p["card"], foreground=p["muted"], font=(fam, 13), padding=24)
     st.configure("TLabelframe", background=p["bg"], bordercolor=p["border"], relief="solid", borderwidth=1, padding=6)
     st.configure("TLabelframe.Label", background=p["bg"], foreground=p["muted"], font=(fam, 9, "bold"))
     st.configure("TSeparator", background=p["border"])
