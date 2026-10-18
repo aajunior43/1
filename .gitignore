@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+
+# Saídas geradas em tempo de execução (não versionar)
+.coverage
+outros/organizador-arquivos/config/logs/
+outros/organizador-arquivos/config/backups/
+outros/organizador-arquivos/config/user_settings.json
