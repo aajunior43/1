@@ -12,11 +12,11 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, replace
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
-from . import pdfgen
+from . import nup, pdfgen
 
 IS_WINDOWS = sys.platform.startswith("win")
 PRINTABLE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff"}
@@ -54,6 +54,9 @@ class Options:
     set_copies: int = 1               # quantas vezes imprimir a fila inteira
     retries: int = 0                  # tentativas extras se o envio à impressora falhar
     retry_wait: float = 2.0           # segundos entre tentativas
+    per_sheet: int = 1                # páginas por folha: 1, 2, 4, 6 ou 9 (monta folhas com N-up)
+    sheet_border: bool = True         # linha em volta de cada página da folha (ajuda a recortar)
+    cover_logo: Optional[str] = None  # logotipo impresso no topo da página de rosto
 
     def validate(self):
         if self.copies < 1:
@@ -66,6 +69,10 @@ class Options:
             raise ValueError("cópias do conjunto deve ser >= 1")
         if not 0 <= self.retries <= 10:
             raise ValueError("tentativas extras deve estar entre 0 e 10")
+        if self.per_sheet not in (1, 2, 4, 6, 9):
+            raise ValueError("páginas por folha deve ser 1, 2, 4, 6 ou 9")
+        if self.cover_logo and not Path(self.cover_logo).is_file():
+            raise ValueError("logotipo não encontrado: " + str(self.cover_logo))
 
 
 # ---------- Fila ----------
@@ -365,12 +372,13 @@ def prepare(f, tmp, opts, depth=0):
 
 
 def as_test_job(files, opts: Options):
-    """Impressão de teste: só a 1ª página de cada arquivo marcado, 1 cópia, sem rosto/separadores."""
+    """Impressão de teste: só a 1ª página de cada arquivo marcado, 1 cópia, sem rosto/separadores/folhas."""
     from dataclasses import replace
     items = [x if isinstance(x, Item) else Item(x) for x in files]
     test_items = [Item(i.path, i.enabled, 1, "1", i.duplex, i.color, i.note) for i in items]
     return test_items, replace(opts, copies=1, pages=None, cover=None, cover_text=None,
-                               folder_divider=False, set_copies=1, attachments=False)
+                               folder_divider=False, set_copies=1, attachments=False, per_sheet=1,
+                               cover_logo=None)
 
 
 # ---------- Execução ----------
@@ -387,6 +395,12 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
     rows, ok, fail = [], 0, 0
     now = lambda: datetime.datetime.now().isoformat(timespec="seconds")
     plain = Options(**{**asdict(opts), "copies": 1, "pages": None, "duplex": None})  # rosto/aviso: simples
+    logo = None
+    if opts.cover_logo and (opts.cover or opts.cover_text):
+        try:
+            logo = nup.load_logo(opts.cover_logo)     # falha cedo, antes de imprimir qualquer coisa
+        except Exception as e:
+            raise RuntimeError(f"não foi possível usar o logotipo: {e}") from e
     active = [it for it in items if it.enabled]
     total = len(active) * opts.set_copies
     for it in items:
@@ -435,8 +449,13 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
                         send(div, plain, "separador de pasta", f, n, total)
                     last_folder = f.parent
                     parts = [f] if opts.dry_run and f.suffix.lower() in OFFICE else prepare(f, work, eff)
+                    if opts.per_sheet > 1 and all(p.suffix.lower() in PRINTABLE for p in parts):
+                        # folhas: a página já sai com o intervalo, a orientação e o papel escolhidos
+                        parts = [build_sheet_file(p, work / f"{Path(f).stem} - folhas {k + 1}.pdf", opts, eff)
+                                 for k, p in enumerate(parts)]
+                        eff = replace(eff, pages=None, landscape=False)
                     if opts.cover or opts.cover_text:
-                        cov = pdfgen.centered_page_pdf(work / "_rosto.pdf", cover_lines(opts, f, n, total))
+                        cov = pdfgen.centered_page_pdf(work / "_rosto.pdf", cover_lines(opts, f, n, total), logo=logo)
                         send(cov, plain, f"rosto {f.name}", f, n, total)
                     detail = [send(p, eff, f.name, f, n, total) for p in parts]
                     ok += 1
@@ -459,6 +478,13 @@ def run_job(files, opts: Options, backend, on_event: Optional[Event] = None,
         shutil.rmtree(tmp, ignore_errors=True)
     emit("done", ok=ok, fail=fail, total=total)
     return rows
+
+
+def build_sheet_file(src, out, opts: Options, eff: Options):
+    """Monta o PDF de folhas de um arquivo (usa o intervalo de páginas do item)."""
+    nup.build_sheets(src, out, opts.per_sheet, pages_spec=eff.pages, landscape=eff.landscape,
+                     paper=eff.paper, border=opts.sheet_border)
+    return out
 
 
 def write_report(path, rows):

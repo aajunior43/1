@@ -11,10 +11,12 @@ from .core import Item, Options
 PROJECT_VERSION = 1
 
 
-def sheets_for(pages: Optional[int], copies: int, duplex: bool) -> Optional[int]:
+def sheets_for(pages: Optional[int], copies: int, duplex: bool, per_sheet: int = 1) -> Optional[int]:
+    """Folhas de papel: páginas agrupadas por folha (N-up) e, com frente e verso, duas páginas por folha."""
     if pages is None:
         return None
-    per_copy = math.ceil(pages / 2) if duplex else pages
+    sheets = math.ceil(pages / max(1, per_sheet))
+    per_copy = math.ceil(sheets / 2) if duplex else sheets
     return per_copy * copies
 
 
@@ -185,7 +187,7 @@ class PrintQueue:
                 sheets += (1 + extra) * opts.set_copies
                 continue
             pages += n * eff.copies * opts.set_copies
-            s = sheets_for(n, eff.copies, bool(eff.duplex)) + extra
+            s = sheets_for(n, eff.copies, bool(eff.duplex), opts.per_sheet) + extra
             sheets += s * opts.set_copies
         return {"total": len(self.items), "enabled": len(files), "pages": pages, "sheets": sheets,
                 "unknown": unknown, "by_type": by_type}
@@ -215,7 +217,7 @@ class PrintQueue:
                     add("rosto", " / ".join(core.cover_lines(opts, it.path, n, total))[:80], 1, 1, 1, arquivo=it.path)
                 pg = self.pages_for_print(it)
                 add("arquivo", it.path.name + (f"  [páginas {it.pages}]" if it.pages else ""), pg, eff.copies,
-                    sheets_for(pg, eff.copies, bool(eff.duplex)), arquivo=it.path,
+                    sheets_for(pg, eff.copies, bool(eff.duplex), opts.per_sheet), arquivo=it.path,
                     **({"conjunto": rep + 1} if opts.set_copies > 1 else {}))
         return steps
 

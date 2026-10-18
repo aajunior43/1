@@ -1,6 +1,5 @@
 """Modo diagnóstico: testa cada peça do programa na máquina e gera um relatório de texto para colar em suporte."""
 import datetime
-import os
 import platform
 import subprocess
 import sys

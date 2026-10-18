@@ -105,6 +105,15 @@ except ImportError:
     HAS_TK = False
 
 
+def _cancel_pending(root):
+    """Cancela retornos agendados (after) para não tentar rodar depois que a janela fechou."""
+    try:
+        for job in root.tk.splitlist(root.tk.call("after", "info")):
+            root.after_cancel(job)
+    except Exception:
+        pass
+
+
 @unittest.skipUnless(HAS_TK and os.environ.get("DISPLAY"), "precisa de tkinter e de um display (use xvfb-run)")
 class GuiExtraTests(unittest.TestCase):
     def setUp(self):
@@ -119,6 +128,7 @@ class GuiExtraTests(unittest.TestCase):
         self.root = tk.Tk()
 
     def tearDown(self):
+        _cancel_pending(self.root)
         try:
             self.root.destroy()
         except tk.TclError:
@@ -146,6 +156,7 @@ class GuiExtraTests(unittest.TestCase):
         self.assertTrue(f.exists())
         q, _ = PrintQueue.load(f)
         self.assertEqual(len(q), 3)
+        _cancel_pending(self.root)
         self.root.destroy()
         self.root = tk.Tk()
         with mock.patch.object(self.gui.messagebox, "askyesno", return_value=True) as ask:

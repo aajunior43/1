@@ -49,6 +49,21 @@ linhas alternadas, cores de estado (✔ verde, ✘ vermelho, aviso âmbar) e tex
   da janela e a largura das colunas.
 - **Ícone** próprio no programa, na janela e no `.exe`.
 
+## Economia de papel e logotipo (novo)
+- **Várias páginas por folha** (**Páginas por folha**: 2, 4, 6 ou 9; linha de `--por-folha N` na linha de comando):
+  monta folhas A4 (ou Carta, A3, A5, Legal, conforme o papel escolhido) com as páginas arrumadas em grade, em retrato
+  ou paisagem. O intervalo de páginas, as cópias e a frente e verso continuam valendo, e o plano e a contagem de
+  folhas consideram a economia.
+  - Linha em volta de cada página para facilitar o recorte (desligue em *Linha em volta de cada página da folha* ou `--sem-borda`).
+  - A pré-visualização mostra **como a folha sai**, com a navegação por folha.
+- **Logotipo na página de rosto** (**Logotipo…** no painel de rosto, ou `--logotipo arquivo.png`): a imagem sai no topo,
+  centralizada, com a proporção preservada; transparência vira fundo branco. Use a sua própria logo.
+- As folhas são montadas como imagens de 150 dpi: a impressão sai nítida, mas o texto dentro da folha não é
+  selecionável. Precisa de `pypdfium2` e `pillow` (já em `requirements-windows.txt`).
+- Telas de exemplo: [`docs/telas/folha-4-paginas-exemplo.png`](docs/telas/folha-4-paginas-exemplo.png),
+  [`docs/telas/rosto-com-logotipo-exemplo.png`](docs/telas/rosto-com-logotipo-exemplo.png),
+  [`docs/telas/12-folhas-4-com-rosto-logotipo.png`](docs/telas/12-folhas-4-com-rosto-logotipo.png).
+
 ## Mais conforto no dia a dia (continuação)
 - **Tela inicial** com dica de arrastar e soltar; **dicas ao passar o mouse** nos botões; **F1** abre os atalhos de teclado.
 - **Progresso** com porcentagem, tempo decorrido, tempo restante estimado e o arquivo atual; resumo ao concluir.
@@ -119,5 +134,5 @@ Funciona via CUPS (`lp`); Office converte com LibreOffice. A GUI precisa de `pyt
 
 ## Testes
 ```
-python -m unittest discover -s tests   # 73 testes
+python -m unittest discover -s tests   # 100 testes
 ```

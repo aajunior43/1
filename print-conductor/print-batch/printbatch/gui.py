@@ -10,7 +10,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, core, fileinfo, preview as pv, theme
+from . import __version__, core, fileinfo, nup, preview as pv, theme
 from .watcher import FolderWatcher
 from .backends import get_backend
 from .jobqueue import PrintQueue
@@ -23,6 +23,7 @@ except Exception:  # pragma: no cover
 
 DUPLEX = {"Desligado": None, "Borda longa": "long", "Borda curta": "short"}
 COLOR = {"Padrão da impressora": None, "Colorido": True, "Preto e branco": False}
+PER_SHEET = {"1 página (normal)": 1, "2 por folha": 2, "4 por folha": 4, "6 por folha": 6, "9 por folha": 9}
 COVER_NAMES = {"Sem página de rosto": None, "Nome do arquivo": "filename", "Nome + pasta": "filename-folder",
                "Completa": "full", "Número na fila": "number", "Personalizada…": "custom"}
 ITEM_DUPLEX = {"(padrão)": None, "Desligado": "off", "Borda longa": "long", "Borda curta": "short"}
@@ -388,18 +389,23 @@ class App:
         self.paper = tk.StringVar()
         self.pages = tk.StringVar()
         self.landscape, self.fit = tk.BooleanVar(), tk.BooleanVar()
+        self.per_sheet = tk.StringVar(value="1 página (normal)")
+        self.sheet_border = tk.BooleanVar(value=True)
         grid = (("Cópias de cada arquivo", ttk.Spinbox(box, from_=1, to=999, textvariable=self.copies, width=6)),
                 ("Repetir a fila inteira", ttk.Spinbox(box, from_=1, to=99, textvariable=self.set_copies, width=6)),
                 ("Tentar de novo se falhar", ttk.Spinbox(box, from_=0, to=10, textvariable=self.retries, width=6)),
                 ("Frente e verso", ttk.Combobox(box, textvariable=self.duplex, values=list(DUPLEX), state="readonly", width=14)),
                 ("Cor", ttk.Combobox(box, textvariable=self.color, values=list(COLOR), state="readonly", width=18)),
                 ("Papel", ttk.Combobox(box, textvariable=self.paper, values=PAPERS, width=8)),
-                ("Páginas (todos)", ttk.Entry(box, textvariable=self.pages, width=12)))
+                ("Páginas (todos)", ttk.Entry(box, textvariable=self.pages, width=12)),
+                ("Páginas por folha", ttk.Combobox(box, textvariable=self.per_sheet, values=list(PER_SHEET), state="readonly", width=16)))
         for r, (label, w) in enumerate(grid, start=2):
             ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", **rpad)
             w.grid(row=r, column=1, columnspan=2, sticky="w", **rpad)
-        ttk.Checkbutton(box, text="Paisagem", variable=self.landscape).grid(row=9, column=0, sticky="w", **rpad)
-        ttk.Checkbutton(box, text="Ajustar à página", variable=self.fit).grid(row=9, column=1, columnspan=2, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Paisagem", variable=self.landscape).grid(row=10, column=0, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Ajustar à página", variable=self.fit).grid(row=10, column=1, columnspan=2, sticky="w", **rpad)
+        ttk.Checkbutton(box, text="Linha em volta de cada página da folha", variable=self.sheet_border).grid(
+            row=11, column=0, columnspan=3, sticky="w", **rpad)
 
         ext = ttk.LabelFrame(right, text="Separadores e extras")
         ext.pack(fill="x", **rpad)
@@ -408,6 +414,15 @@ class App:
         cb = ttk.Combobox(ext, textvariable=self.cover, values=list(COVER_NAMES), state="readonly")
         cb.pack(fill="x", **rpad)
         cb.bind("<<ComboboxSelected>>", lambda e: (self.toggle_cover(), self.update_summary()))
+        self.cover_logo = tk.StringVar()
+        logo_row = ttk.Frame(ext)
+        logo_row.pack(fill="x", **rpad)
+        ttk.Button(logo_row, text="Logotipo…", style="Tool.TButton", command=self.choose_logo).pack(side="left")
+        ttk.Button(logo_row, text="✕", width=3, style="Tool.TButton", command=lambda: self.cover_logo.set("")).pack(side="left", padx=4)
+        self.logo_lbl = ttk.Label(logo_row, text="sem logotipo", style="Muted.TLabel")
+        self.logo_lbl.pack(side="left", padx=4)
+        self.cover_logo.trace_add("write", lambda *a: self.logo_lbl.config(
+            text=Path(self.cover_logo.get()).name if self.cover_logo.get() else "sem logotipo"))
         self.cover_text = tk.Text(ext, height=4, width=30)
         theme.style_text(self.cover_text, self.pal)
         self.cover_text.insert("1.0", "{name}\nPasta: {folder}\nArquivo {index} de {total}")
@@ -424,7 +439,8 @@ class App:
                           ("Imprimir anexos de e-mails (.eml)", self.attach),
                           ("Simular (não imprime)", self.dry)):
             ttk.Checkbutton(self.check_frame, text=text, variable=var).pack(anchor="w", **rpad)
-        for v in (self.copies, self.set_copies, self.duplex, self.pages, self.divider):
+        for v in (self.copies, self.set_copies, self.duplex, self.pages, self.divider, self.per_sheet,
+                  self.sheet_border, self.cover):
             v.trace_add("write", lambda *a: self.update_summary())
 
         act = ttk.Frame(right)
@@ -622,8 +638,6 @@ class App:
 
         ttk.Button(bar, text="Copiar relatório", command=copy).pack(side="left")
         ttk.Button(bar, text="Fechar", command=win.destroy).pack(side="right")
-        printers = self.printer_cb["values"]
-        pr = self.printer.get()
         res = {}
 
         def work():
@@ -751,14 +765,21 @@ class App:
 
         def work():
             try:
+                mode = "pagina"
                 if cover:
                     if not (opts.cover or opts.cover_text):
                         opts.cover = "filename-folder"
                     pdf = self.previewer.cover_pdf(opts, it.path, pos, total)
                     png, n = self.previewer.render_pdf(pdf, 0)
+                    mode = "rosto"
+                elif opts.per_sheet > 1:
+                    pdf, _ = self.previewer.sheets_pdf(it.path, opts)
+                    png, n = pv.render_pdf_page(pdf, index, (340, 480))
+                    mode = "folha"
                 else:
                     png, n = self.previewer.render(it.path, index)
-                self.events.put(("preview", {"req": req, "png": png, "n": n, "index": index, "cover": cover}))
+                self.events.put(("preview", {"req": req, "png": png, "n": n, "index": index, "mode": mode,
+                                             "per": opts.per_sheet, "logo": bool(opts.cover_logo)}))
             except Exception as e:
                 self.events.put(("preview", {"req": req, "error": str(e)}))
 
@@ -775,9 +796,17 @@ class App:
             return
         self.prev_img = tk.PhotoImage(data=base64.b64encode(d["png"]).decode())
         self.prev_canvas.config(image=self.prev_img, text="")
-        self.prev_note.config(text="Página de rosto (modelo atual)" if d["cover"] else "")
-        self.prev_total = 1 if d["cover"] else d["n"]
-        self.prev_page.config(text="rosto" if d["cover"] else f"página {d['index'] + 1} de {d['n']}")
+        mode = d.get("mode", "pagina")
+        if mode == "rosto":
+            note = "Página de rosto" + (" com logotipo" if d.get("logo") else "")
+            self.prev_total, pos_txt = 1, "rosto"
+        elif mode == "folha":
+            note = f"Como sai na folha: {d['per']} páginas por folha" + (" · com linha entre elas" if self.sheet_border.get() else "")
+            self.prev_total, pos_txt = d["n"], f"folha {d['index'] + 1} de {d['n']}"
+        else:
+            note, self.prev_total, pos_txt = "", d["n"], f"página {d['index'] + 1} de {d['n']}"
+        self.prev_note.config(text=note)
+        self.prev_page.config(text=pos_txt)
 
     # ================= plano de impressão =================
     def show_plan(self):
@@ -817,6 +846,19 @@ class App:
         ttk.Button(b, text="Fechar", command=win.destroy).pack(side="right", padx=4)
         ttk.Button(b, text="Imprimir agora", command=lambda: (win.destroy(), self.start())).pack(side="right", padx=4)
 
+    def choose_logo(self):
+        p = filedialog.askopenfilename(title="Logotipo para a página de rosto",
+                                       filetypes=[("Imagens", "*.png *.jpg *.jpeg *.bmp *.gif"), ("Todos", "*.*")])
+        if not p:
+            return
+        try:
+            nup.load_logo(p)                      # confere agora se a imagem abre
+        except Exception as e:
+            messagebox.showerror("Logotipo", f"Não foi possível usar esta imagem:\n{e}")
+            return
+        self.cover_logo.set(p)
+        self.update_summary()
+
     def toggle_cover(self):
         if COVER_NAMES[self.cover.get()] == "custom":
             self.cover_text.pack(fill="x", padx=4, pady=2, before=self.check_frame)
@@ -837,7 +879,6 @@ class App:
             except OSError:
                 size = "—"
             pg = self.q.pages(it)
-            sel_pages = self.q.pages_for_print(it)
             tags = ["odd" if pos % 2 else "even"]
             if not it.enabled:
                 tags.append("off")
@@ -1092,7 +1133,9 @@ class App:
                 "duplex": self.duplex.get(), "color": self.color.get(), "paper": self.paper.get(),
                 "landscape": self.landscape.get(), "fit": self.fit.get(), "cover": self.cover.get(),
                 "divider": self.divider.get(), "failed": self.failed.get(), "attach": self.attach.get(),
-                "cover_text": self.cover_text.get("1.0", "end").strip()}
+                "cover_text": self.cover_text.get("1.0", "end").strip(),
+                "per_sheet": self.per_sheet.get(), "sheet_border": self.sheet_border.get(),
+                "cover_logo": self.cover_logo.get()}
 
     def set_state(self, c, with_printer=True):
         if with_printer and c.get("printer") in (self.printer_cb["values"] or ()):
@@ -1112,6 +1155,9 @@ class App:
         if c.get("cover_text"):
             self.cover_text.delete("1.0", "end")
             self.cover_text.insert("1.0", c["cover_text"])
+        self.per_sheet.set(c.get("per_sheet") if c.get("per_sheet") in PER_SHEET else "1 página (normal)")
+        self.sheet_border.set(c.get("sheet_border", True))
+        self.cover_logo.set(c.get("cover_logo", "") if Path(c.get("cover_logo", "") or "x").is_file() else "")
         self.toggle_cover()
 
     def refresh_presets(self):
@@ -1155,7 +1201,9 @@ class App:
             paper=self.paper.get().strip() or None, landscape=self.landscape.get(), fit=self.fit.get(),
             color=COLOR[self.color.get()], cover=None if cv == "custom" else cv, cover_text=text,
             failed_page=self.failed.get(), attachments=self.attach.get(), dry_run=self.dry.get(),
-            folder_divider=self.divider.get(), retries=num(self.retries, 1, 0, 10))
+            folder_divider=self.divider.get(), retries=num(self.retries, 1, 0, 10),
+            per_sheet=PER_SHEET.get(self.per_sheet.get(), 1), sheet_border=self.sheet_border.get(),
+            cover_logo=self.cover_logo.get().strip() or None)
         if validate:
             o.validate()
         return o

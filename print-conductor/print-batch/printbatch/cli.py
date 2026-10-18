@@ -50,6 +50,10 @@ def build_parser():
     ap.add_argument("--failed-page", action="store_true", help="imprime aviso quando um arquivo falha")
     ap.add_argument("--attachments", action="store_true", help="imprime também os anexos de e-mails .eml")
     ap.add_argument("--retries", type=int, default=0, metavar="N", help="tentativas extras se o envio à impressora falhar (0 a 10)")
+    ap.add_argument("--por-folha", type=int, choices=[1, 2, 4, 6, 9], default=1, metavar="N",
+                    help="páginas por folha (1, 2, 4, 6 ou 9) — economiza papel")
+    ap.add_argument("--sem-borda", action="store_true", help="com --por-folha: não desenha a linha em volta de cada página")
+    ap.add_argument("--logotipo", metavar="ARQ", help="logotipo impresso no topo da página de rosto (PNG, JPG…)")
     ap.add_argument("--folder-divider", action="store_true", help="página separadora quando muda a pasta")
     ap.add_argument("--set-copies", type=int, default=1, help="imprime a fila inteira N vezes (conjuntos)")
     ap.add_argument("--project", metavar="ARQ", help="carrega fila e opções de um projeto .pbq")
@@ -111,7 +115,8 @@ def main(argv=None):
     opts = core.Options(printer=a.printer, copies=a.copies, duplex=a.duplex, pages=a.pages, paper=a.paper,
                         landscape=a.landscape, fit=a.fit, color=a.color, cover=a.cover, cover_text=a.cover_text,
                         failed_page=a.failed_page, attachments=a.attachments, dry_run=a.dry_run,
-                        folder_divider=a.folder_divider, set_copies=a.set_copies, retries=a.retries)
+                        folder_divider=a.folder_divider, set_copies=a.set_copies, retries=a.retries,
+                        per_sheet=a.por_folha, sheet_border=not a.sem_borda, cover_logo=a.logotipo)
     warn = lambda m: print("aviso:", m, file=sys.stderr)
     q = jobqueue.PrintQueue()
     if a.project:

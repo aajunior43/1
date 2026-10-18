@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
-from . import core, pdfgen
+from . import core, nup, pdfgen
 
 _IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff"}
 
@@ -81,8 +81,20 @@ class Previewer:
         return render_pdf_page(pdf, index, size)
 
     def cover_pdf(self, opts, f, index, total) -> Path:
-        out = self.dir / f"cover_{abs(hash((str(f), index, total, opts.cover, opts.cover_text)))}.pdf"
-        return pdfgen.centered_page_pdf(out, core.cover_lines(opts, Path(f), index, total))
+        out = self.dir / f"cover_{abs(hash((str(f), index, total, opts.cover, opts.cover_text, opts.cover_logo)))}.pdf"
+        logo = nup.load_logo(opts.cover_logo) if opts.cover_logo else None
+        return pdfgen.centered_page_pdf(out, core.cover_lines(opts, Path(f), index, total), logo=logo)
+
+    def sheets_pdf(self, path, opts) -> Tuple[Path, int]:
+        """PDF com as folhas (N por folha) do arquivo e o número de folhas. Fica em cache."""
+        key = ("folhas", self._key(path), opts.per_sheet, opts.paper, opts.landscape, opts.pages, opts.sheet_border)
+        if key not in self.cache:
+            base = self.pdf_for(path)
+            out = self.dir / f"folhas_{len(self.cache)}.pdf"
+            n = nup.build_sheets(base, out, opts.per_sheet, pages_spec=opts.pages, landscape=opts.landscape,
+                                 paper=opts.paper, border=opts.sheet_border)
+            self.cache[key] = (out, n)
+        return self.cache[key]
 
 
 def _png(im) -> bytes:
