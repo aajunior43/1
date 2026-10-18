@@ -1,5 +1,6 @@
 """Informações sobre arquivos da fila: contagem de páginas e verificação de problemas."""
 import hashlib
+import logging
 import math
 import re
 import zipfile
@@ -10,6 +11,7 @@ from typing import List, Optional
 from . import core
 
 LINES_PER_TEXT_PAGE = 60
+logging.getLogger("pypdf").setLevel(logging.CRITICAL)      # PDFs estranhos não devem poluir o terminal
 
 
 def count_range(spec: Optional[str], total: Optional[int]) -> Optional[int]:
@@ -131,6 +133,7 @@ def check_files(paths: List[Path], find_duplicates=True) -> List[Issue]:
             continue
         if p.name.startswith("~$") or p.name.startswith(".~lock") or p.name.lower() in {"thumbs.db", "desktop.ini", ".ds_store"}:
             issues.append(Issue("aviso", p, "arquivo temporário/de sistema — provavelmente não deve ser impresso"))
+            continue                                # não há o que verificar além disso
         try:
             size = p.stat().st_size
         except OSError as e:
