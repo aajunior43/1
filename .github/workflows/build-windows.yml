@@ -1,14 +1,14 @@
-name: Build PrintBatch (Windows)
+name: Build JR Printer (Windows)
 on:
   workflow_dispatch:
   push:
-    paths: ["print-conductor/print-batch/**"]
+    paths: ["print-conductor/jr-printer/**"]
 jobs:
   build:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: print-conductor/print-batch
+        working-directory: print-conductor/jr-printer
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,8 +22,8 @@ jobs:
         run: python -m unittest discover -s tests
       - name: Empacotar
         run: |
-          python -m PyInstaller --noconfirm --onefile --noconsole --name PrintBatch --icon printbatch/assets/icon.ico --add-data "printbatch/assets;printbatch/assets" --collect-all tkinterdnd2 --collect-all pypdfium2 --hidden-import win32com.client --hidden-import pythoncom batch_print.py
+          python -m PyInstaller --noconfirm --onefile --noconsole --name JRPrinter --icon jrprinter/assets/icon.ico --add-data "jrprinter/assets;jrprinter/assets" --collect-all tkinterdnd2 --collect-all pypdfium2 --hidden-import win32com.client --hidden-import pythoncom jr_printer.py
       - uses: actions/upload-artifact@v4
         with:
-          name: PrintBatch-windows
-          path: print-conductor/print-batch/dist/PrintBatch.exe
+          name: JRPrinter-windows
+          path: print-conductor/jr-printer/dist/JRPrinter.exe

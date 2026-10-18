@@ -1,6 +1,6 @@
 # Análise — Print Conductor
 
-Registro da análise do programa **Print Conductor** que originou o projeto [`print-batch`](print-batch/) (PrintBatch). Serve de modelo para as análises dos próximos apps do repositório.
+Registro da análise do programa **Print Conductor** que originou o projeto [`jr-printer`](jr-printer/) (JR Printer). Serve de modelo para as análises dos próximos apps do repositório.
 
 ## Alvo observado
 - **Programa:** Print Conductor (software comercial de impressão em lote para Windows), instalador de avaliação.
@@ -24,6 +24,6 @@ Registro da análise do programa **Print Conductor** que originou o projeto [`pr
 ## Limite adotado
 - A análise ficou em **recursos observáveis e arquitetura geral**. O código ofuscado **não foi decompilado nem
   reconstruído**, e **nenhum código, recurso ou arte do original foi copiado**.
-- O projeto [`print-batch`](print-batch/) (PrintBatch) foi escrito do zero: usa SumatraPDF, Office/LibreOffice e CUPS para imprimir, com implementação própria
+- O projeto [`jr-printer`](jr-printer/) (JR Printer) foi escrito do zero: usa SumatraPDF, Office/LibreOffice e CUPS para imprimir, com implementação própria
   de fila, páginas de rosto, aviso de falha, pré-visualização, plano de impressão e relatórios.
 - É uma ferramenta independente, sem afiliação com o produto analisado.

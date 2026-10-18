@@ -5,7 +5,7 @@ em pastas à parte, os **projetos criados** a partir dela. Projetos que não nas
 
 | App analisado | Projeto(s) criado(s) |
 |---|---|
-| [`print-conductor/`](print-conductor) — impressão em lote para Windows ([análise](print-conductor/ANALISE.md)) | [`print-batch/`](print-conductor/print-batch) — **PrintBatch**: impressão em lote para Windows, Linux e macOS, com fila organizável, pré-visualização, plano de impressão, páginas de rosto e relatórios |
+| [`print-conductor/`](print-conductor) — impressão em lote para Windows ([análise](print-conductor/ANALISE.md)) | [`jr-printer/`](print-conductor/jr-printer) — **JR Printer**: impressão em lote para Windows, Linux e macOS, com fila organizável, pré-visualização, plano de impressão, páginas de rosto e relatórios |
 
 | Ferramentas | O que é |
 |---|---|
