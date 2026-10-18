@@ -16,7 +16,7 @@ sys.path.insert(0, str(src_path))
 try:
     from src.gui.main_window import main
     from src.utils.logger import logger
-    from src.config.settings import config
+    from config.settings import config
 except ImportError as e:
     print(f"Erro ao importar módulos: {e}")
     print("Certifique-se de que todos os arquivos estão no local correto.")
@@ -67,8 +67,7 @@ def setup_environment():
         logger.info("🚀 Iniciando Organizador de Arquivos com IA")
         logger.info(f"📁 Diretório de trabalho: {Path.cwd()}")
         
-        # Carregar configurações
-        config.load()
+        # As configurações já são carregadas quando o objeto `config` é criado (config/settings.py)
         
         return True
         

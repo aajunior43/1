@@ -15,7 +15,7 @@ from ..core.organizer import organizer
 from ..core.filters import filter_manager, SizeFilter, DateFilter, ExtensionFilter
 from ..utils.logger import logger
 from ..utils.backup import backup_manager
-from ..config.settings import config, THEMES
+from config.settings import config, THEMES
 
 class AdvancedOrganizerGUI:
     """Interface gráfica avançada do organizador"""
@@ -67,7 +67,7 @@ class AdvancedOrganizerGUI:
         self.organization_mode = tk.StringVar(value="por_tipo")
         self.auto_backup = tk.BooleanVar(value=True)
         self.show_preview = tk.BooleanVar(value=True)
-        self.current_theme = tk.StringVar(value="claro")
+        self.current_theme = tk.StringVar(value="light")
         
         # Variáveis de progresso
         self.progress_var = tk.DoubleVar()
@@ -77,17 +77,17 @@ class AdvancedOrganizerGUI:
     def setup_styles(self):
         """Configura estilos da interface"""
         self.style = ttk.Style()
-        self.apply_theme("claro")
+        self.apply_theme("light")
     
     def apply_theme(self, theme_name: str):
         """Aplica tema à interface"""
         if theme_name not in THEMES:
-            theme_name = "claro"
+            theme_name = "light"
         
         theme = THEMES[theme_name]
         
         # Configurar cores do tema
-        self.root.configure(bg=theme["bg"])
+        self.root.configure(bg=theme["bg_primary"])
         
         # Configurar estilos ttk
         self.style.theme_use("clam")
@@ -95,13 +95,13 @@ class AdvancedOrganizerGUI:
         # Configurar estilos personalizados
         self.style.configure("Title.TLabel", 
                            font=("Segoe UI", 16, "bold"),
-                           background=theme["bg"],
-                           foreground=theme["fg"])
+                           background=theme["bg_primary"],
+                           foreground=theme["text_primary"])
         
         self.style.configure("Subtitle.TLabel",
                            font=("Segoe UI", 10, "bold"),
-                           background=theme["bg"],
-                           foreground=theme["fg"])
+                           background=theme["bg_primary"],
+                           foreground=theme["text_primary"])
         
         self.style.configure("Custom.TButton",
                            font=("Segoe UI", 9),
@@ -287,7 +287,7 @@ class AdvancedOrganizerGUI:
         
         # Toolbar
         toolbar = ttk.Frame(results_frame)
-        toolbar.pack(fill="x", pady=(0, 10))
+        toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))   # grid: o resto desta aba usa grid
         
         ttk.Button(toolbar, text="📤 Exportar", 
                   command=self.export_results).pack(side="left", padx=(0, 5))
@@ -849,7 +849,7 @@ Deseja continuar?
         """Atualiza logs"""
         # Carregar logs do arquivo
         try:
-            recent_logs = logger.get_recent_logs(100)
+            recent_logs = logger.get_log_content(100).splitlines()   # o logger devolve texto; a aba mostra linhas
             
             self.logs_text.configure(state="normal")
             self.logs_text.delete(1.0, tk.END)
@@ -939,7 +939,7 @@ Deseja continuar?
         """Carrega configurações salvas"""
         try:
             # Carregar tema
-            theme = config.get("theme", "claro")
+            theme = config.get("theme", "light")
             self.current_theme.set(theme)
             self.apply_theme(theme)
             
@@ -963,7 +963,7 @@ Deseja continuar?
             config.set("theme", self.current_theme.get())
             config.set("auto_backup", self.auto_backup.get())
             config.set("show_preview", self.show_preview.get())
-            config.save()
+            config.save_settings()
             
         except Exception as e:
             self.log(f"Erro ao salvar configurações: {str(e)}")

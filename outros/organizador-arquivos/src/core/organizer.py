@@ -14,7 +14,7 @@ from ..utils.logger import logger
 from ..utils.backup import backup_manager
 from ..utils.validator import file_validator, operation_validator
 from .filters import filter_manager
-from ..config.settings import config, FILE_CATEGORIES
+from config.settings import config, FILE_CATEGORIES
 
 class AdvancedOrganizer:
     """Organizador avançado de arquivos com funcionalidades melhoradas"""

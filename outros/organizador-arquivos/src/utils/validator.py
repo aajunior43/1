@@ -12,6 +12,14 @@ import mimetypes
 
 from .logger import logger
 
+def _is_hidden(path, stat_info) -> bool:
+    """Oculto no Windows (atributo do sistema de arquivos) ou, nos demais sistemas, nome com ponto."""
+    attrs = getattr(stat_info, 'st_file_attributes', None)      # só existe no Windows
+    if attrs is not None and hasattr(stat, 'FILE_ATTRIBUTE_HIDDEN'):
+        return bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN)
+    return path.name.startswith('.')
+
+
 class FileValidator:
     """Validador de arquivos e operações"""
     
@@ -192,7 +200,7 @@ class FileValidator:
                 "created": stat_info.st_ctime,
                 "modified": stat_info.st_mtime,
                 "accessed": stat_info.st_atime,
-                "is_hidden": bool(stat_info.st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN) if hasattr(stat, 'FILE_ATTRIBUTE_HIDDEN') else path.name.startswith('.'),
+                "is_hidden": _is_hidden(path, stat_info),
                 "is_readonly": not bool(stat_info.st_mode & stat.S_IWRITE),
                 "permissions": oct(stat_info.st_mode)[-3:]
             }

@@ -10,6 +10,9 @@
 # Threading e JSON
 # threading, json já vem incluído no Python padrão
 
+# Dependências obrigatórias (o programa não abre sem elas)
+psutil>=5.9
+
 # Dependências Opcionais para Funcionalidades Avançadas
 # (Descomente se desejar usar funcionalidades específicas)
 

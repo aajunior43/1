@@ -21,14 +21,12 @@ echo Atualizando pip...
 python -m pip install --upgrade pip
 
 echo.
-echo Instalando dependencias...
-echo.
+echo Instalando dependencias obrigatorias (requirements.txt)...
+python -m pip install -r requirements.txt
 
-echo Instalando PyMuPDF (versao pre-compilada)...
+echo.
+echo Instalando recursos opcionais (conversor de PDF)...
 pip install --only-binary=all PyMuPDF
-
-echo.
-echo Instalando Pillow...
 pip install Pillow
 
 echo.
@@ -36,12 +34,12 @@ echo ========================================
 echo   Instalacao concluida com sucesso!
 echo ========================================
 echo.
-echo Testando o sistema...
-python teste_exemplo.py
+echo Verificando a instalacao...
+python -c "import psutil, tkinter; print('Dependencias OK')"
 echo.
 echo Para executar o programa, use:
-echo   python pdf_converter.py
+echo   executar.bat
 echo   ou
-echo   python pdf_converter_avancado.py
+echo   python main.py
 echo.
 pause 
